@@ -1,15 +1,18 @@
 /**
- * @bond/risk-engine — FOUNDATION SHELL ONLY.
+ * @bond/risk-engine — advisory AI Risk Engine foundation (Phase 2).
  *
- * AI risk scoring is NOT implemented. This module intentionally exposes
- * no scoring logic. It exists so imports/builds resolve from day one.
+ * Analyzes normalized agent activity with deterministic rules and emits
+ * structured RiskFlag domain objects. ADVISORY ONLY: the engine reports,
+ * attestors verify, enforcement acts. Nothing here can slash, withdraw,
+ * sign, submit, or mutate chain state — those capabilities do not exist
+ * in this package (see boundary.test.ts for the enforced proof).
  */
+export const RISK_ENGINE_STATUS = "rule-based-v1" as const;
 
-export const RISK_ENGINE_STATUS = "not-implemented" as const;
-
-/** Placeholder stub. Always throws — real scoring is a later milestone. */
-export function assessRisk(): never {
-  throw new Error(
-    "@bond/risk-engine: assessRisk() is not implemented (foundation shell only).",
-  );
-}
+export * from "./versions.js";
+export * from "./input.js";
+export * from "./evidence.js";
+export * from "./rules.js";
+export * from "./scoring.js";
+export * from "./dedup.js";
+export * from "./engine.js";

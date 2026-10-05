@@ -18,6 +18,7 @@ export type DomainErrorCode =
   | "INVALID_SLASH_EVENT"
   | "INVALID_SLASH_TRANSITION"
   | "INVALID_REPUTATION_INPUT"
+  | "INVALID_ACTIVITY_INPUT"
   | "INVALID_TIMESTAMP";
 
 export class DomainError extends Error {
