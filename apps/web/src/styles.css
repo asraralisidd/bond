@@ -1,0 +1,17 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color-scheme: light dark;
+}
+
+.page {
+  max-width: 640px;
+  margin: 3rem auto;
+  padding: 0 1rem;
+}
+
+.card {
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-top: 1rem;
+}

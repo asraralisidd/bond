@@ -1,0 +1,23 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@bond/shared-types": ["./packages/shared-types/src/index.ts"],
+      "@bond/risk-engine": ["./packages/risk-engine/src/index.ts"],
+      "@bond/attestor": ["./packages/attestor/src/index.ts"],
+      "@bond/midnight-adapter": ["./packages/midnight-adapter/src/index.ts"]
+    }
+  },
+  "include": [
+    "tests/**/*.ts",
+    "apps/api/src/**/*.ts",
+    "apps/web/src/**/*.tsx",
+    "apps/web/src/**/*.ts",
+    "apps/web/vite.config.ts",
+    "packages/*/src/**/*.ts",
+    "vitest.config.ts"
+  ],
+  "exclude": ["node_modules", "dist", "packages/*/dist", "apps/*/dist"]
+}
