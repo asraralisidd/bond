@@ -1,15 +1,20 @@
 /**
- * @bond/attestor — FOUNDATION SHELL ONLY.
+ * @bond/attestor — independent Attestor System (Phase 3).
  *
- * Attestation logic is NOT implemented. This module intentionally exposes
- * no signing/verification logic. It exists so imports/builds resolve.
+ * Evaluates RiskFlags independently of the Risk Engine and produces
+ * quorum decisions consumable by future enforcement. Output is decisions
+ * only: no slashing, no withdrawals, no chain, no keys, no network.
+ * (See boundary.test.ts for the enforced proof.)
  */
+export const ATTESTOR_STATUS = "independent-v1" as const;
 
-export const ATTESTOR_STATUS = "not-implemented" as const;
-
-/** Placeholder stub. Always throws — real attestation is a later milestone. */
-export function attest(): never {
-  throw new Error(
-    "@bond/attestor: attest() is not implemented (foundation shell only).",
-  );
-}
+export * from "./versions.js";
+export * from "./attestor.js";
+export * from "./policy.js";
+export * from "./evaluator.js";
+export * from "./quorum.js";
+export * from "./freshness.js";
+export * from "./replay.js";
+export * from "./binding.js";
+export * from "./decision.js";
+export * from "./projections.js";
