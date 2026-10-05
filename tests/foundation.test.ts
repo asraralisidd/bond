@@ -11,11 +11,23 @@ import {
   parseEvidenceId,
   parseRiskFlagId,
 } from "@bond/shared-types";
-import { MIDNIGHT_ADAPTER_STATUS } from "@bond/midnight-adapter";
+import {
+  MIDNIGHT_ADAPTER_STATUS,
+  buildRegistrationRequest,
+} from "@bond/midnight-adapter";
 
 describe("foundation shells", () => {
-  it("midnight-adapter remains an unimplemented shell", () => {
-    expect(MIDNIGHT_ADAPTER_STATUS).toBe("not-implemented");
+  it("midnight-adapter exposes a validated boundary (Phase 4, no chain)", () => {
+    expect(MIDNIGHT_ADAPTER_STATUS).toBe("adapter-boundary-v1");
+    // Boundary proof: pure request construction works; connection still
+    // refuses to fake a chain.
+    expect(
+      buildRegistrationRequest({ agentId: "agent-001", operatorId: "op-001" }),
+    ).toEqual({
+      kind: "register-agent",
+      agentId: "agent-001",
+      operatorId: "op-001",
+    });
   });
 
   it("risk engine is implemented as advisory-only (Phase 2)", () => {

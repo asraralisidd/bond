@@ -13,6 +13,9 @@ export default defineConfig({
       "@bond/attestor": fileURLToPath(
         new URL("./packages/attestor/src/index.ts", import.meta.url),
       ),
+      "@bond/contract": fileURLToPath(
+        new URL("./packages/contract/src/index.ts", import.meta.url),
+      ),
       "@bond/midnight-adapter": fileURLToPath(
         new URL("./packages/midnight-adapter/src/index.ts", import.meta.url),
       ),

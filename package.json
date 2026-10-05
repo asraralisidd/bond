@@ -11,7 +11,7 @@
   "scripts": {
     "dev:api": "npm run dev --workspace=apps/api",
     "dev:web": "npm run dev --workspace=apps/web",
-    "build": "npm run build --workspace=@bond/shared-types && npm run build --workspace=@bond/risk-engine && npm run build --workspace=@bond/attestor && npm run build --workspace=@bond/midnight-adapter && npm run build --workspace=@bond/api && npm run build --workspace=@bond/web",
+    "build": "npm run build --workspace=@bond/shared-types && npm run build --workspace=@bond/risk-engine && npm run build --workspace=@bond/attestor && npm run build --workspace=@bond/contract && npm run build --workspace=@bond/midnight-adapter && npm run build --workspace=@bond/api && npm run build --workspace=@bond/web",
     "build:api": "npm run build --workspace=apps/api",
     "build:web": "npm run build --workspace=apps/web",
     "typecheck": "tsc --noEmit -p tsconfig.json",
