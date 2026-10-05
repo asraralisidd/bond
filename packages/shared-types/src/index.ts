@@ -1,20 +1,29 @@
 /**
- * @bond/shared-types — foundation-only shared contracts.
+ * @bond/shared-types — BOND Phase 1 domain model.
  *
- * NOTE: No BOND business logic lives here yet. These are minimal
- * transport-level types used by the web/api shells to verify wiring.
- * Domain types (collateral, slashing, attestations, ZK proofs) are
- * planned and must be designed in a later milestone.
+ * Strongly typed, pure, deterministic domain foundation: branded IDs,
+ * lifecycle state machines (agent, bond, risk flag, transaction),
+ * advisory risk flags, independent attestations, slash events,
+ * derived reputation, typed protocol events, public projections with a
+ * privacy boundary, structured domain errors, and log-safe metadata.
+ *
+ * What is NOT here (later phases): chain/wallet/ZK/crypto, AI inference,
+ * persistence, HTTP, UI. RiskFlag is decision support only — it cannot
+ * move funds or mutate chain state.
  */
 
-/** Standard API envelope for future endpoints (foundation only). */
-export interface ApiResponse<T> {
-  data: T;
-}
+export type { ApiResponse, HealthResponse } from "./transport.js";
 
-/** Health payload served by apps/api `GET /health`. */
-export interface HealthResponse {
-  status: "ok";
-  version: string;
-  service: "bond-api";
-}
+export * from "./ids.js";
+export * from "./enums.js";
+export * from "./errors.js";
+export * from "./agent.js";
+export * from "./bond.js";
+export * from "./risk-flag.js";
+export * from "./attestation.js";
+export * from "./slash-event.js";
+export * from "./reputation.js";
+export * from "./transaction.js";
+export * from "./events.js";
+export * from "./projections.js";
+export * from "./observability.js";
