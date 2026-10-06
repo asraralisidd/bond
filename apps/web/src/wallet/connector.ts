@@ -28,6 +28,13 @@ export interface WalletSignaturePayload {
 export interface WalletAddresses {
   unshieldedAddress: string;
   shieldedAddress: string;
+  /**
+   * Shielded coin public key as returned by the verified connector API
+   * (getShieldedAddresses). Available wallet key material exposed by
+   * the connector; the ownership relationship between this key and the
+   * signing verifying key is NOT independently proven.
+   */
+  shieldedCoinPublicKey: string;
 }
 
 export interface ConnectedWallet {
@@ -100,6 +107,7 @@ export async function connectWallet(
       return {
         unshieldedAddress: unshielded.unshieldedAddress,
         shieldedAddress: shielded.shieldedAddress,
+        shieldedCoinPublicKey: shielded.shieldedCoinPublicKey,
       };
     },
     signMessage: (message: string) =>

@@ -39,6 +39,7 @@ import {
 import { ApiError } from "../http/errors.js";
 import { query, withTransaction } from "../db/pool.js";
 import { createOperator, hashToken, newToken } from "../db/stores/operators.js";
+import { purgeExpiredChallenges } from "./challenge-cleanup.js";
 
 const NETWORK_MAX = 64;
 
@@ -103,6 +104,16 @@ export async function requestWalletChallenge(input: {
     issuedAt,
     expiresAt,
   });
+  // Opportunistic cleanup of expired-and-unconsumed challenges (Phase
+  // 13): bounded by the auth rate limit, fail-safe (cleanup failure
+  // must never block issuance), and race-safe — a concurrently verified
+  // challenge is either already consumed (not matched by the purge) or
+  // expired (would fail verification regardless).
+  try {
+    await purgeExpiredChallenges();
+  } catch {
+    // cleanup is best-effort; issuance proceeds
+  }
   await query(
     `INSERT INTO wallet_challenges (id, nonce, network, message, expires_at)
      VALUES ($1, $2, $3, $4, $5)`,

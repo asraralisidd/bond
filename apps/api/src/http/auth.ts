@@ -23,6 +23,8 @@ import {
 export interface AuthContext {
   readonly operatorId: string;
   readonly sessionId: string;
+  readonly authMethod: string;
+  readonly walletVerifyingKey: string | null;
 }
 
 declare global {
@@ -85,7 +87,12 @@ export async function requireAuth(
     ) {
       throw new ApiError("UNAUTHORIZED", "Invalid or expired session");
     }
-    req.auth = { operatorId: session.operator_id, sessionId: session.id };
+    req.auth = {
+      operatorId: session.operator_id,
+      sessionId: session.id,
+      authMethod: session.auth_method,
+      walletVerifyingKey: session.wallet_verifying_key,
+    };
     next();
   } catch (error) {
     next(error);
