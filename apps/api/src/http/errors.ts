@@ -39,12 +39,28 @@ const HTTP_STATUS: Record<string, number> = {
   UNAUTHORIZED: 401,
   FORBIDDEN: 403,
   IDEMPOTENCY_CONFLICT: 409,
+  REQUEST_TIMEOUT: 503,
+  BODY_TOO_LARGE: 413,
   MIDNIGHT_UNAVAILABLE: 502,
   MIDNIGHT_CONFIG_INVALID: 500,
   MIDNIGHT_SUBMISSION_FAILED: 502,
   MIDNIGHT_CONFIRMATION_FAILED: 502,
   MIDNIGHT_DEPLOY_FAILED: 502,
   MIDNIGHT_READ_FAILED: 502,
+};
+
+/**
+ * Fixed client-safe messages for adapter failures. The underlying
+ * library message (constructor names, provider internals) never reaches
+ * clients — it goes to structured logs only.
+ */
+const MIDNIGHT_SAFE_MESSAGES: Record<string, string> = {
+  MIDNIGHT_UNAVAILABLE: "Blockchain integration unavailable",
+  MIDNIGHT_CONFIG_INVALID: "Blockchain integration misconfigured",
+  MIDNIGHT_SUBMISSION_FAILED: "Transaction submission failed",
+  MIDNIGHT_CONFIRMATION_FAILED: "Transaction confirmation failed",
+  MIDNIGHT_DEPLOY_FAILED: "Contract deployment failed",
+  MIDNIGHT_READ_FAILED: "Blockchain read failed",
 };
 
 export class ApiError extends Error {
@@ -86,9 +102,24 @@ export function errorHandler(
   }
   if (error instanceof DomainError || error instanceof MidnightError) {
     const code = error.code;
+    const message =
+      error instanceof MidnightError
+        ? (MIDNIGHT_SAFE_MESSAGES[code] ?? "Blockchain operation failed")
+        : error.message;
+    logError(
+      {
+        metadata: {
+          ...emptyLogMetadata(),
+          requestId,
+        },
+        operation: "error-handler",
+        errorCode: code,
+      },
+      error instanceof Error ? error.message.slice(0, 500) : "Unknown error",
+    );
     res.status(HTTP_STATUS[code] ?? 500).json({
       code,
-      message: error.message,
+      message,
       requestId,
     } satisfies ApiErrorBody);
     return;
@@ -97,6 +128,17 @@ export function errorHandler(
     { metadata: emptyLogMetadata(), operation: "error-handler" },
     "Internal error",
   );
+  if (
+    error instanceof Error &&
+    (error as Error & { type?: string }).type === "entity.too.large"
+  ) {
+    res.status(413).json({
+      code: "BODY_TOO_LARGE",
+      message: "Request body exceeds the configured limit",
+      requestId,
+    } satisfies ApiErrorBody);
+    return;
+  }
   res.status(500).json({
     code: "INTERNAL_ERROR",
     message: "Internal error",

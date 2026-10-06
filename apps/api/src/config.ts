@@ -1,14 +1,25 @@
 /**
  * Backend configuration: environment parsing with fail-fast validation.
  *
- * Secrets are never defaulted and never logged. DATABASE_URL is required;
- * everything else carries safe local defaults. Unknown MIDNIGHT_NETWORK
- * values throw (adapter validates); wallet material is never read here.
+ * Fail-closed rules:
+ * - DATABASE_URL is always required.
+ * - NODE_ENV must be development, test, or production.
+ * - Production requires explicit CORS_ORIGINS (no silent localhost
+ *   fallback) and forbids DEV_AUTH_TOKEN (dev auth must never run in
+ *   prod) and wildcard origins (with or without credentials).
+ * - Secrets are never defaulted and never logged. Wallet material is
+ *   never read here.
  */
+export type NodeEnv = "development" | "test" | "production";
+
 export interface ApiConfig {
+  readonly nodeEnv: NodeEnv;
   readonly port: number;
   readonly host: string;
-  readonly corsOrigin: string;
+  readonly corsOrigins: readonly string[];
+  readonly bodyLimit: string;
+  readonly requestTimeoutMs: number;
+  readonly shutdownTimeoutMs: number;
   readonly databaseUrl: string;
   readonly logLevel: string;
   readonly midnightNetwork: string;
@@ -23,19 +34,106 @@ function required(name: string, env: NodeJS.ProcessEnv): string {
   return value;
 }
 
+function parseNodeEnv(env: NodeJS.ProcessEnv): NodeEnv {
+  const raw = (env.NODE_ENV ?? "development").trim();
+  if (raw === "development" || raw === "test" || raw === "production") {
+    return raw;
+  }
+  throw new Error(`Invalid NODE_ENV: ${raw}`);
+}
+
+function parseCorsOrigins(env: NodeJS.ProcessEnv, nodeEnv: NodeEnv): string[] {
+  const raw = env.CORS_ORIGINS?.trim() || env.CORS_ORIGIN?.trim() || "";
+  const origins = raw
+    .split(",")
+    .map((o) => o.trim())
+    .filter((o) => o.length > 0);
+  if (origins.includes("*")) {
+    throw new Error("CORS origins must never include '*'");
+  }
+  if (nodeEnv === "production" && origins.length === 0) {
+    throw new Error(
+      "Production requires explicit CORS_ORIGINS (comma-separated)",
+    );
+  }
+  if (origins.length === 0) {
+    return ["http://localhost:5173"];
+  }
+  return origins;
+}
+
+function parseBodyLimit(env: NodeJS.ProcessEnv): string {
+  const raw = (env.BODY_LIMIT ?? "100kb").trim().toLowerCase();
+  if (!/^(\d+)(b|kb|mb)$/.test(raw)) {
+    throw new Error(`Invalid BODY_LIMIT: ${env.BODY_LIMIT}`);
+  }
+  const [, amount, unit] = /^(\d+)(b|kb|mb)$/.exec(raw) as RegExpExecArray;
+  const bytes =
+    Number(amount) * (unit === "mb" ? 1024 * 1024 : unit === "kb" ? 1024 : 1);
+  if (bytes <= 0 || bytes > 5 * 1024 * 1024) {
+    throw new Error(`Invalid BODY_LIMIT: ${env.BODY_LIMIT}`);
+  }
+  return raw;
+}
+
+function parsePositiveInt(
+  name: string,
+  env: NodeJS.ProcessEnv,
+  fallback: number,
+): number {
+  const raw = env[name] ?? String(fallback);
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`Invalid ${name}: ${raw}`);
+  }
+  return value;
+}
+
+function parseLogLevel(env: NodeJS.ProcessEnv): string {
+  const raw = (env.LOG_LEVEL ?? "info").trim().toLowerCase();
+  const allowed = [
+    "fatal",
+    "error",
+    "warn",
+    "info",
+    "debug",
+    "trace",
+    "silent",
+  ];
+  if (!allowed.includes(raw)) {
+    throw new Error(`Invalid LOG_LEVEL: ${env.LOG_LEVEL}`);
+  }
+  return raw;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
+  const nodeEnv = parseNodeEnv(env);
   const portRaw = env.API_PORT ?? "4000";
   const port = Number(portRaw);
   if (!Number.isInteger(port) || port <= 0) {
     throw new Error(`Invalid API_PORT: ${portRaw}`);
   }
+  const devAuthToken = env.DEV_AUTH_TOKEN?.trim() || null;
+  if (nodeEnv === "production" && devAuthToken !== null) {
+    throw new Error(
+      "DEV_AUTH_TOKEN must not be set in production (development auth is disabled there)",
+    );
+  }
+  const shutdownTimeoutMs = parsePositiveInt("SHUTDOWN_TIMEOUT_MS", env, 10000);
+  if (shutdownTimeoutMs <= 0) {
+    throw new Error("Invalid SHUTDOWN_TIMEOUT_MS: must be > 0");
+  }
   return {
+    nodeEnv,
     port,
     host: env.API_HOST ?? "0.0.0.0",
-    corsOrigin: env.CORS_ORIGIN ?? "http://localhost:5173",
+    corsOrigins: parseCorsOrigins(env, nodeEnv),
+    bodyLimit: parseBodyLimit(env),
+    requestTimeoutMs: parsePositiveInt("REQUEST_TIMEOUT_MS", env, 30000),
+    shutdownTimeoutMs,
     databaseUrl: required("DATABASE_URL", env),
-    logLevel: env.LOG_LEVEL ?? "info",
+    logLevel: parseLogLevel(env),
     midnightNetwork: env.MIDNIGHT_NETWORK ?? "",
-    devAuthToken: env.DEV_AUTH_TOKEN?.trim() || null,
+    devAuthToken,
   };
 }

@@ -8,6 +8,7 @@ import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
 import type { AttestationVerdict } from "@bond/shared-types";
 import { requireAuth, requireOperator } from "../auth.js";
+import { requireAttestor } from "../middleware/attestor-auth.js";
 import { ApiError } from "../errors.js";
 import { getRequestId } from "../request-id.js";
 import {
@@ -114,6 +115,7 @@ attestationsRouter.get(
 
 attestationsRouter.post(
   "/:id/verdicts",
+  requireAttestor,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const body = req.body as {
@@ -127,6 +129,9 @@ attestationsRouter.post(
           : undefined;
       if (!body.attestorId) {
         throw new ApiError("INVALID_IDENTIFIER", "attestorId required");
+      }
+      if (req.attestorId !== undefined && req.attestorId !== body.attestorId) {
+        throw new ApiError("FORBIDDEN", "Attestor identity mismatch");
       }
       const outcome = await submitVerdictService({
         attestationId: req.params.id as string,
