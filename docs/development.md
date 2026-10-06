@@ -45,12 +45,18 @@ npm run build
 docker compose config
 ```
 
-## 5. Database (config only)
+## 5. Database (Phase 7: real schema)
 
 - Compose `db` creates database `bond_dev` from `.env` on first start.
-- `database/init/00_extensions.sql` enables `pgcrypto` only.
-- No BOND tables exist. Add a migration tool (e.g. `node-pg-migrate`) in the
-  next milestone before creating domain tables.
+- `database/init/00_extensions.sql` enables `pgcrypto`;
+  `database/migrations/001–007` create the BOND schema (see
+  `docs/phase-7/README.md`).
+- Run migrations: `DATABASE_URL=... npm run db:migrate --workspace=@bond/api`.
+- API tests need PostgreSQL: set `TEST_DATABASE_URL` (each test file
+  uses an isolated `bond_test_<name>` database, created automatically;
+  `TEST_ADMIN_DATABASE_URL` defaults to `bond_dev` for that).
+- If host port 5432 is taken, point `DATABASE_URL`/`TEST_DATABASE_URL`
+  at your container port (e.g. a postgres on `5544`).
 
 ## 6. Troubleshooting
 
