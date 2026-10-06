@@ -4,7 +4,7 @@
  * (see services/transactions.ts). Amounts stay opaque digit strings.
  */
 import { randomUUID } from "node:crypto";
-import { transitionBondStatus } from "@bond/shared-types";
+import { parseBondId, transitionBondStatus } from "@bond/shared-types";
 import type { BondStatus } from "@bond/shared-types";
 import {
   findBondById,
@@ -79,6 +79,7 @@ export async function getBondService(
   id: string,
   operatorId: string,
 ): Promise<BondRow> {
+  parseBondId(id);
   const row = await findBondById(id);
   if (!row) {
     throw new ApiError("NOT_FOUND", "Bond not found");

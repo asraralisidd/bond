@@ -13,7 +13,10 @@
  */
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
-import { transitionTransactionStatus } from "@bond/shared-types";
+import {
+  parseTransactionId,
+  transitionTransactionStatus,
+} from "@bond/shared-types";
 import type { TransactionPurpose, TransactionStatus } from "@bond/shared-types";
 import type { ChainHandle, OperationResult } from "@bond/midnight-adapter";
 import { confirmOperation } from "@bond/midnight-adapter";
@@ -27,6 +30,7 @@ import {
   updateChainTransaction,
 } from "../db/stores/chain.js";
 import type { ChainTxRow } from "../db/stores/chain.js";
+import { findAgentById, findBondById } from "../db/stores/registry.js";
 import { ApiError } from "../http/errors.js";
 import { recordEvent } from "./events.js";
 
@@ -85,6 +89,27 @@ export async function createTransactionIntent(input: {
 }): Promise<{ row: ChainTxRow; created: boolean }> {
   if (!VALID_PURPOSES.has(input.purpose)) {
     throw new ApiError("INVALID_IDENTIFIER", "Invalid transaction purpose");
+  }
+  // BOLA guard: a transaction intent may only reference the caller's own
+  // agent/bond. Without this, any operator could plant intents (including
+  // ENFORCEMENT) linked to another operator's resources.
+  if (input.agentId !== undefined && input.agentId !== null) {
+    const agent = await findAgentById(input.agentId);
+    if (!agent) {
+      throw new ApiError("NOT_FOUND", "Agent not found");
+    }
+    if (agent.operator_id !== input.operatorId) {
+      throw new ApiError("FORBIDDEN", "Not your resource");
+    }
+  }
+  if (input.bondId !== undefined && input.bondId !== null) {
+    const bond = await findBondById(input.bondId);
+    if (!bond) {
+      throw new ApiError("NOT_FOUND", "Bond not found");
+    }
+    if (bond.operator_id !== input.operatorId) {
+      throw new ApiError("FORBIDDEN", "Not your resource");
+    }
   }
   const existing = await findChainTransactionByIdempotencyKey(
     input.idempotencyKey,
@@ -151,6 +176,7 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 export async function getTransactionService(id: string): Promise<ChainTxRow> {
+  parseTransactionId(id);
   const row = await findChainTransactionById(id);
   if (!row) {
     throw new ApiError("NOT_FOUND", "Transaction not found");

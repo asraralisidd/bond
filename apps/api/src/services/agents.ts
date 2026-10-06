@@ -50,6 +50,18 @@ export async function registerAgentService(
   if (!Array.isArray(input.capabilities)) {
     throw new ApiError("INVALID_IDENTIFIER", "Invalid capabilities");
   }
+  if (input.capabilities.length > 100) {
+    throw new ApiError("INVALID_IDENTIFIER", "Invalid capabilities");
+  }
+  for (const capability of input.capabilities) {
+    if (
+      typeof capability !== "string" ||
+      capability.trim().length === 0 ||
+      capability.length > 256
+    ) {
+      throw new ApiError("INVALID_IDENTIFIER", "Invalid capabilities");
+    }
+  }
   const id = randomUUID();
   try {
     return await withTransaction(async (client) => {

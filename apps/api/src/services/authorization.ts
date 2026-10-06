@@ -8,6 +8,12 @@
  * transactions are system-internal and denied to operators.
  */
 import { ApiError } from "../http/errors.js";
+import {
+  parseAgentId,
+  parseAttestationId,
+  parseBondId,
+  parseRiskFlagId,
+} from "@bond/shared-types";
 import { findAgentById, findBondById } from "../db/stores/registry.js";
 import { findAttestationById } from "../db/stores/attestation.js";
 import { findRiskFlagById } from "../db/stores/risk.js";
@@ -17,6 +23,7 @@ export async function requireAgentOwnership(
   agentId: string,
   operatorId: string,
 ): Promise<void> {
+  parseAgentId(agentId);
   const agent = await findAgentById(agentId);
   if (!agent) {
     throw new ApiError("NOT_FOUND", "Agent not found");
@@ -30,6 +37,7 @@ export async function requireBondOwnership(
   bondId: string,
   operatorId: string,
 ): Promise<void> {
+  parseBondId(bondId);
   const bond = await findBondById(bondId);
   if (!bond) {
     throw new ApiError("NOT_FOUND", "Bond not found");
@@ -58,6 +66,7 @@ export async function requireFlagOwnership(
   flagId: string,
   operatorId: string,
 ): Promise<void> {
+  parseRiskFlagId(flagId);
   const flag = await findRiskFlagById(flagId);
   if (!flag) {
     throw new ApiError("NOT_FOUND", "Risk flag not found");
@@ -69,6 +78,7 @@ export async function requireAttestationOwnership(
   attestationId: string,
   operatorId: string,
 ): Promise<void> {
+  parseAttestationId(attestationId);
   const attestation = await findAttestationById(attestationId);
   if (!attestation) {
     throw new ApiError("NOT_FOUND", "Attestation not found");

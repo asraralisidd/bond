@@ -47,6 +47,15 @@ export async function runIdempotent<T>(input: {
   if (!input.key) {
     return { replayed: false, body: await input.execute() };
   }
+  // Shape-check before any DB work: oversized keys otherwise surface as
+  // database errors (500) instead of client errors (400).
+  if (
+    typeof input.key !== "string" ||
+    input.key.length === 0 ||
+    input.key.length > 256
+  ) {
+    throw new ApiError("INVALID_IDENTIFIER", "Invalid idempotency key");
+  }
   const claim = await claimIdempotencyKey({
     key: input.key,
     operatorId: input.operatorId,

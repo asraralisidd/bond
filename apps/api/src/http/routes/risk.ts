@@ -6,6 +6,7 @@
 import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
 import type { RawActivityInput } from "@bond/risk-engine";
+import { parseRiskFlagId } from "@bond/shared-types";
 import { requireAuth, requireOperator } from "../auth.js";
 import { rateLimitFor } from "../rate-limit/middleware.js";
 import { getRequestId } from "../request-id.js";
@@ -90,6 +91,7 @@ riskRouter.get(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const auth = requireOperator(req);
+      parseRiskFlagId(req.params.id);
       const row = await findRiskFlagById(req.params.id as string);
       if (!row) {
         throw new ApiError("NOT_FOUND", "Risk flag not found");
