@@ -24,6 +24,11 @@ export interface ApiConfig {
   readonly logLevel: string;
   readonly midnightNetwork: string;
   readonly devAuthToken: string | null;
+  readonly pgConnectTimeoutMs: number;
+  readonly pgIdleTimeoutMs: number;
+  readonly pgStatementTimeoutMs: number;
+  readonly pgPoolMax: number;
+  readonly idempotencyTtlHours: number;
 }
 
 function required(name: string, env: NodeJS.ProcessEnv): string {
@@ -106,6 +111,22 @@ function parseLogLevel(env: NodeJS.ProcessEnv): string {
   return raw;
 }
 
+function parsePositiveIntEnv(
+  name: string,
+  env: NodeJS.ProcessEnv,
+  fallback: number,
+): number {
+  const raw = env[name];
+  if (raw === undefined || raw === "") {
+    return fallback;
+  }
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`Invalid ${name}: ${raw}`);
+  }
+  return value;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   const nodeEnv = parseNodeEnv(env);
   const portRaw = env.API_PORT ?? "4000";
@@ -135,5 +156,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     logLevel: parseLogLevel(env),
     midnightNetwork: env.MIDNIGHT_NETWORK ?? "",
     devAuthToken,
+    pgConnectTimeoutMs: parsePositiveIntEnv("PG_CONNECT_TIMEOUT_MS", env, 5000),
+    pgIdleTimeoutMs: parsePositiveIntEnv("PG_IDLE_TIMEOUT_MS", env, 30000),
+    pgStatementTimeoutMs: parsePositiveIntEnv(
+      "PG_STATEMENT_TIMEOUT_MS",
+      env,
+      30000,
+    ),
+    pgPoolMax: parsePositiveIntEnv("PG_POOL_MAX", env, 10),
+    idempotencyTtlHours: parsePositiveIntEnv("IDEMPOTENCY_TTL_HOURS", env, 24),
   };
 }

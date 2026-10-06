@@ -22,17 +22,20 @@ export interface ChainTxRow {
   readonly confirmed_at: string | null;
 }
 
-export async function insertChainTransaction(input: {
-  readonly id: string;
-  readonly purpose: string;
-  readonly agentId?: string | null;
-  readonly bondId?: string | null;
-  readonly idempotencyKey: string;
-  readonly status: string;
-  readonly chainTxId?: string | null;
-  readonly nullifier?: string | null;
-  readonly params?: unknown;
-}): Promise<ChainTxRow> {
+export async function insertChainTransaction(
+  input: {
+    readonly id: string;
+    readonly purpose: string;
+    readonly agentId?: string | null;
+    readonly bondId?: string | null;
+    readonly idempotencyKey: string;
+    readonly status: string;
+    readonly chainTxId?: string | null;
+    readonly nullifier?: string | null;
+    readonly params?: unknown;
+  },
+  client?: PoolClient,
+): Promise<ChainTxRow> {
   const result = await query<ChainTxRow>(
     `INSERT INTO chain_transactions
        (id, purpose, agent_id, bond_id, idempotency_key, status,
@@ -52,6 +55,7 @@ export async function insertChainTransaction(input: {
       input.nullifier ?? null,
       JSON.stringify(input.params ?? {}),
     ],
+    client,
   );
   const row = result.rows[0];
   if (!row) {
@@ -69,6 +73,26 @@ export async function findChainTransactionById(
        chain_tx_id, nullifier, attempts, last_error,
        to_char(confirmed_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS confirmed_at
      FROM chain_transactions WHERE id = $1`,
+    [id],
+    client,
+  );
+  return result.rows[0] ?? null;
+}
+
+/**
+ * Row-locked read for state transitions. Must be called inside an
+ * explicit transaction (withTransaction): concurrent advancers of the
+ * same transaction serialize here instead of racing check-then-act.
+ */
+export async function findChainTransactionByIdForUpdate(
+  id: string,
+  client: PoolClient,
+): Promise<ChainTxRow | null> {
+  const result = await query<ChainTxRow>(
+    `SELECT id, purpose, agent_id, bond_id, idempotency_key, status,
+       chain_tx_id, nullifier, attempts, last_error,
+       to_char(confirmed_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS confirmed_at
+     FROM chain_transactions WHERE id = $1 FOR UPDATE`,
     [id],
     client,
   );
@@ -146,14 +170,40 @@ export interface IdempotencyRow {
   readonly response_snapshot: unknown;
 }
 
+export type IdempotencyClaimOutcome = "claimed" | "replayed" | "conflict";
+
+export interface IdempotencyClaim {
+  readonly outcome: IdempotencyClaimOutcome;
+  readonly row: IdempotencyRow | null;
+  readonly reclaimed: boolean;
+}
+
+/**
+ * Lease model (all mutations conditional-atomic, safe under concurrency):
+ * - INSERT wins → "claimed" (fresh lease).
+ * - Same fingerprint + completed + unexpired → "replayed".
+ * - Same fingerprint + completed + expired → reclaim (fresh execution).
+ * - Same fingerprint + in-progress + unexpired → "conflict" (active lease).
+ * - Same fingerprint + in-progress + expired (stale holder) → reclaim.
+ * - Same fingerprint + failed → "conflict" (client must mint a new key).
+ * - Different fingerprint + unexpired → "conflict" (fail closed).
+ * - Different fingerprint + expired → reclaim (original outcome is gone).
+ *
+ * Reclaim is a single conditional UPDATE; losers re-read and see the
+ * winner's fresh lease, so concurrent identical requests converge to a
+ * single execution. Expired rows are never silently deleted while
+ * active; reclaimed rows are overwritten with the new request.
+ */
 export async function claimIdempotencyKey(input: {
   readonly key: string;
   readonly operatorId: string;
   readonly route: string;
   readonly fingerprint: string;
   readonly ttlHours?: number;
-}): Promise<{ inserted: boolean; row: IdempotencyRow | null }> {
-  const result = await query<IdempotencyRow>(
+  readonly client?: PoolClient;
+}): Promise<IdempotencyClaim> {
+  const ttl = input.ttlHours ?? 24;
+  const inserted = await query<IdempotencyRow>(
     `INSERT INTO idempotency_keys
        (key, operator_id, route, request_fingerprint, status,
         expires_at)
@@ -162,24 +212,67 @@ export async function claimIdempotencyKey(input: {
      ON CONFLICT (key) DO NOTHING
      RETURNING key, operator_id, route, request_fingerprint, status,
        response_snapshot`,
-    [
-      input.key,
-      input.operatorId,
-      input.route,
-      input.fingerprint,
-      String(input.ttlHours ?? 24),
-    ],
+    [input.key, input.operatorId, input.route, input.fingerprint, String(ttl)],
+    input.client,
   );
-  if (result.rows[0]) {
-    return { inserted: true, row: result.rows[0] };
+  if (inserted.rows[0]) {
+    return { outcome: "claimed", row: inserted.rows[0], reclaimed: false };
   }
-  const existing = await query<IdempotencyRow>(
+  const existing = await query<IdempotencyRow & { expired: boolean }>(
+    `SELECT key, operator_id, route, request_fingerprint, status,
+       response_snapshot, (expires_at < now()) AS expired
+     FROM idempotency_keys WHERE key = $1`,
+    [input.key],
+    input.client,
+  );
+  const row = existing.rows[0] ?? null;
+  if (!row) {
+    return { outcome: "conflict", row: null, reclaimed: false };
+  }
+  const sameFingerprint = row.request_fingerprint === input.fingerprint;
+  if (row.status === "completed" && sameFingerprint && !row.expired) {
+    return { outcome: "replayed", row, reclaimed: false };
+  }
+  if (row.status === "failed") {
+    return { outcome: "conflict", row, reclaimed: false };
+  }
+  const reclaimable =
+    (row.status === "completed" && row.expired) ||
+    (row.status === "in-progress" && row.expired) ||
+    (!sameFingerprint && row.expired);
+  if (!reclaimable) {
+    return { outcome: "conflict", row, reclaimed: false };
+  }
+  const reclaimed = await query<IdempotencyRow>(
+    `UPDATE idempotency_keys SET
+       operator_id = $2, route = $3, request_fingerprint = $4,
+       status = 'in-progress', response_snapshot = NULL,
+       expires_at = now() + (($5 || ' hours')::interval)
+     WHERE key = $1 AND expires_at < now()
+     RETURNING key, operator_id, route, request_fingerprint, status,
+       response_snapshot`,
+    [input.key, input.operatorId, input.route, input.fingerprint, String(ttl)],
+    input.client,
+  );
+  if (reclaimed.rows[0]) {
+    return { outcome: "claimed", row: reclaimed.rows[0], reclaimed: true };
+  }
+  const reread = await query<IdempotencyRow>(
     `SELECT key, operator_id, route, request_fingerprint, status,
        response_snapshot
      FROM idempotency_keys WHERE key = $1`,
     [input.key],
+    input.client,
   );
-  return { inserted: false, row: existing.rows[0] ?? null };
+  const winner = reread.rows[0] ?? null;
+  if (
+    winner &&
+    winner.status === "completed" &&
+    winner.request_fingerprint === input.fingerprint
+  ) {
+    return { outcome: "replayed", row: winner, reclaimed: false };
+  }
+  return { outcome: "conflict", row: winner, reclaimed: false };
 }
 
 export async function completeIdempotencyKey(
@@ -246,18 +339,21 @@ export interface EligibilityProofRow {
   readonly tx_id: string | null;
 }
 
-export async function insertEligibilityProof(input: {
-  readonly id: string;
-  readonly agentId: string;
-  readonly bondId: string;
-  readonly policyVersion: string;
-  readonly purpose: string;
-  readonly requiredMinimumMinorUnits: string;
-  readonly proofNullifier: string;
-  readonly status: string;
-  readonly expiresAt: string;
-  readonly txId?: string | null;
-}): Promise<void> {
+export async function insertEligibilityProof(
+  input: {
+    readonly id: string;
+    readonly agentId: string;
+    readonly bondId: string;
+    readonly policyVersion: string;
+    readonly purpose: string;
+    readonly requiredMinimumMinorUnits: string;
+    readonly proofNullifier: string;
+    readonly status: string;
+    readonly expiresAt: string;
+    readonly txId?: string | null;
+  },
+  client?: PoolClient,
+): Promise<void> {
   await query(
     `INSERT INTO eligibility_proofs
        (id, agent_id, bond_id, policy_version, purpose,
@@ -276,6 +372,7 @@ export async function insertEligibilityProof(input: {
       input.expiresAt,
       input.txId ?? null,
     ],
+    client,
   );
 }
 

@@ -152,7 +152,9 @@ describe("request timeout middleware", () => {
         return this;
       },
     } as unknown as Response;
-    const req = { headers: { "x-request-id": "req-timeout-1" } } as unknown as Request;
+    const req = {
+      headers: { "x-request-id": "req-timeout-1" },
+    } as unknown as Request;
     vi.useFakeTimers();
     try {
       const next = vi.fn();

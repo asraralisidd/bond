@@ -52,24 +52,18 @@ export async function runIdempotent<T>(input: {
     operatorId: input.operatorId,
     route: input.route,
     fingerprint: input.fingerprint,
+    ttlHours: idempotencyTtlHours(),
   });
-  if (!claim.inserted) {
-    const existing = claim.row;
-    if (!existing) {
-      throw new ApiError("INTERNAL_ERROR", "Idempotency state missing");
-    }
-    if (existing.request_fingerprint !== input.fingerprint) {
-      throw new ApiError(
-        "IDEMPOTENCY_CONFLICT",
-        "Idempotency key already used for a different request",
-      );
-    }
-    if (existing.status === "completed") {
-      return { replayed: true, body: existing.response_snapshot as T };
-    }
+  if (claim.outcome === "replayed" && claim.row) {
+    return { replayed: true, body: claim.row.response_snapshot as T };
+  }
+  if (claim.outcome === "conflict") {
+    const status = claim.row?.status;
     throw new ApiError(
       "IDEMPOTENCY_CONFLICT",
-      "Idempotency key already in progress",
+      status === "failed"
+        ? "Idempotency key already failed; use a new key"
+        : "Idempotency key already in progress or used for a different request",
     );
   }
   try {
@@ -80,4 +74,16 @@ export async function runIdempotent<T>(input: {
     await failIdempotencyKey(input.key);
     throw error;
   }
+}
+
+function idempotencyTtlHours(): number {
+  const raw = process.env.IDEMPOTENCY_TTL_HOURS;
+  if (raw === undefined || raw === "") {
+    return 24;
+  }
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new ApiError("INTERNAL_ERROR", "Invalid IDEMPOTENCY_TTL_HOURS");
+  }
+  return value;
 }

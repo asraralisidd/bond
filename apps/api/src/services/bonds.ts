@@ -15,6 +15,7 @@ import {
 import type { BondRow } from "../db/stores/registry.js";
 import { getAgentService } from "./agents.js";
 import { ApiError } from "../http/errors.js";
+import { withTransaction } from "../db/pool.js";
 import { recordEvent } from "./events.js";
 
 export const BOND_POLICY_VERSION = "bond-policy-v1";
@@ -46,24 +47,32 @@ export async function createBondService(input: {
       "Agent already has a live bond",
     );
   }
-  const row = await insertBond({
-    id: randomUUID(),
-    agentId: input.agentId,
-    operatorId: input.operatorId,
-    commitmentMinorUnits: input.commitmentMinorUnits,
-    status: "CREATED",
-    policyVersion: BOND_POLICY_VERSION,
+  return withTransaction(async (client) => {
+    const row = await insertBond(
+      {
+        id: randomUUID(),
+        agentId: input.agentId,
+        operatorId: input.operatorId,
+        commitmentMinorUnits: input.commitmentMinorUnits,
+        status: "CREATED",
+        policyVersion: BOND_POLICY_VERSION,
+      },
+      client,
+    );
+    await recordEvent(
+      {
+        type: "BOND_CREATED",
+        agentId: input.agentId,
+        bondId: row.id,
+        actor: `operator:${input.operatorId}`,
+        policyVersion: BOND_POLICY_VERSION,
+        requestId: input.requestId,
+        payload: { bondId: row.id, status: "CREATED" },
+      },
+      client,
+    );
+    return row;
   });
-  await recordEvent({
-    type: "BOND_CREATED",
-    agentId: input.agentId,
-    bondId: row.id,
-    actor: `operator:${input.operatorId}`,
-    policyVersion: BOND_POLICY_VERSION,
-    requestId: input.requestId,
-    payload: { bondId: row.id, status: "CREATED" },
-  });
-  return row;
 }
 
 export async function getBondService(
@@ -88,17 +97,22 @@ export async function transitionBondService(
 ): Promise<BondRow> {
   const row = await getBondService(id, operatorId);
   const next = transitionBondStatus(row.status as BondStatus, to);
-  const updated = await updateBond(id, { status: next });
-  if (!updated) {
-    throw new ApiError("NOT_FOUND", "Bond not found");
-  }
-  await recordEvent({
-    type: "BOND_STATUS_CHANGED",
-    agentId: row.agent_id,
-    bondId: id,
-    actor: `operator:${operatorId}`,
-    requestId,
-    payload: { from: row.status, to: next },
+  return withTransaction(async (client) => {
+    const updated = await updateBond(id, { status: next }, client);
+    if (!updated) {
+      throw new ApiError("NOT_FOUND", "Bond not found");
+    }
+    await recordEvent(
+      {
+        type: "BOND_STATUS_CHANGED",
+        agentId: row.agent_id,
+        bondId: id,
+        actor: `operator:${operatorId}`,
+        requestId,
+        payload: { from: row.status, to: next },
+      },
+      client,
+    );
+    return updated;
   });
-  return updated;
 }

@@ -16,6 +16,7 @@ import type { EligibilityPurpose } from "@bond/midnight-adapter";
 import { policyVersionToBytes32 } from "@bond/midnight-adapter";
 import { ELIGIBILITY_PURPOSE_CODES } from "@bond/midnight-adapter";
 import { ApiError } from "../http/errors.js";
+import { withTransaction } from "../db/pool.js";
 import { recordEvent } from "./events.js";
 import { getAgentService } from "./agents.js";
 import { getBondService } from "./bonds.js";
@@ -66,25 +67,33 @@ export async function createEligibilityProofService(input: {
     }
     throw error;
   }
-  await insertEligibilityProof({
-    id: proof.proofId,
-    agentId: proof.agentId,
-    bondId: proof.bondId,
-    policyVersion: proof.policyVersion,
-    purpose: proof.purpose,
-    requiredMinimumMinorUnits: input.requiredMinimumMinorUnits,
-    proofNullifier: proof.nullifier,
-    status: "CREATED",
-    expiresAt: proof.expiresAt,
-  });
-  await recordEvent({
-    type: "ELIGIBILITY_PROVED",
-    agentId: proof.agentId,
-    bondId: proof.bondId,
-    actor: `operator:${input.operatorId}`,
-    policyVersion,
-    requestId: input.requestId,
-    payload: { proofId: proof.proofId },
+  await withTransaction(async (client) => {
+    await insertEligibilityProof(
+      {
+        id: proof.proofId,
+        agentId: proof.agentId,
+        bondId: proof.bondId,
+        policyVersion: proof.policyVersion,
+        purpose: proof.purpose,
+        requiredMinimumMinorUnits: input.requiredMinimumMinorUnits,
+        proofNullifier: proof.nullifier,
+        status: "CREATED",
+        expiresAt: proof.expiresAt,
+      },
+      client,
+    );
+    await recordEvent(
+      {
+        type: "ELIGIBILITY_PROVED",
+        agentId: proof.agentId,
+        bondId: proof.bondId,
+        actor: `operator:${input.operatorId}`,
+        policyVersion,
+        requestId: input.requestId,
+        payload: { proofId: proof.proofId },
+      },
+      client,
+    );
   });
   return { proofId: proof.proofId, status: proof.status };
 }
@@ -151,7 +160,9 @@ export async function consumeEligibilityService(input: {
     throw new ApiError("INVALID_ELIGIBILITY_PROOF", "Proof revoked");
   }
   if (Date.parse(new Date().toISOString()) >= Date.parse(row.expires_at)) {
-    await updateEligibilityProof(row.id, { status: "EXPIRED" });
+    await withTransaction(async (client) => {
+      await updateEligibilityProof(row.id, { status: "EXPIRED" }, client);
+    });
     throw new ApiError("EXPIRED_ELIGIBILITY_PROOF", "Proof expired");
   }
   const redemption = deriveRedemptionNullifier(
@@ -159,18 +170,27 @@ export async function consumeEligibilityService(input: {
     row.id,
     input.nonce,
   );
-  await updateEligibilityProof(row.id, {
-    status: "CONSUMED",
-    redemptionNullifier: redemption,
-  });
-  await recordEvent({
-    type: "ELIGIBILITY_CONSUMED",
-    agentId: row.agent_id,
-    bondId: row.bond_id,
-    actor: `operator:${input.operatorId}`,
-    policyVersion: row.policy_version,
-    requestId: input.requestId,
-    payload: { proofId: row.id },
+  await withTransaction(async (client) => {
+    await updateEligibilityProof(
+      row.id,
+      {
+        status: "CONSUMED",
+        redemptionNullifier: redemption,
+      },
+      client,
+    );
+    await recordEvent(
+      {
+        type: "ELIGIBILITY_CONSUMED",
+        agentId: row.agent_id,
+        bondId: row.bond_id,
+        actor: `operator:${input.operatorId}`,
+        policyVersion: row.policy_version,
+        requestId: input.requestId,
+        payload: { proofId: row.id },
+      },
+      client,
+    );
   });
   return { status: "CONSUMED" };
 }

@@ -6,12 +6,15 @@
 import { query } from "../pool.js";
 import type { PoolClient } from "pg";
 
-export async function upsertAttestor(input: {
-  readonly id: string;
-  readonly organization: string;
-  readonly status: string;
-  readonly independence?: unknown;
-}): Promise<void> {
+export async function upsertAttestor(
+  input: {
+    readonly id: string;
+    readonly organization: string;
+    readonly status: string;
+    readonly independence?: unknown;
+  },
+  client?: PoolClient,
+): Promise<void> {
   await query(
     `INSERT INTO attestors (id, organization, status, independence)
      VALUES ($1, $2, $3, $4)
@@ -25,6 +28,7 @@ export async function upsertAttestor(input: {
       input.status,
       JSON.stringify(input.independence ?? {}),
     ],
+    client,
   );
 }
 
@@ -57,16 +61,19 @@ export interface AttestationRow {
   readonly expires_at: string;
 }
 
-export async function insertAttestation(input: {
-  readonly id: string;
-  readonly flagId: string;
-  readonly agentId: string;
-  readonly threshold: number;
-  readonly policyVersion: string;
-  readonly status: string;
-  readonly requestedAt: string;
-  readonly expiresAt: string;
-}): Promise<void> {
+export async function insertAttestation(
+  input: {
+    readonly id: string;
+    readonly flagId: string;
+    readonly agentId: string;
+    readonly threshold: number;
+    readonly policyVersion: string;
+    readonly status: string;
+    readonly requestedAt: string;
+    readonly expiresAt: string;
+  },
+  client?: PoolClient,
+): Promise<void> {
   await query(
     `INSERT INTO attestations
        (id, flag_id, agent_id, threshold, policy_version, status, requested_at, expires_at)
@@ -81,6 +88,7 @@ export async function insertAttestation(input: {
       input.requestedAt,
       input.expiresAt,
     ],
+    client,
   );
 }
 
@@ -117,21 +125,24 @@ export async function updateAttestation(
   );
 }
 
-export async function insertSlashEvent(input: {
-  readonly id: string;
-  readonly agentId: string;
-  readonly bondId: string;
-  readonly attestationId: string;
-  readonly decisionId: string;
-  readonly flagId: string;
-  readonly category: string;
-  readonly severity: string;
-  readonly amountMinorUnits: string;
-  readonly isFullSlash: boolean;
-  readonly status: string;
-  readonly txId?: string | null;
-  readonly initiatedAt: string;
-}): Promise<void> {
+export async function insertSlashEvent(
+  input: {
+    readonly id: string;
+    readonly agentId: string;
+    readonly bondId: string;
+    readonly attestationId: string;
+    readonly decisionId: string;
+    readonly flagId: string;
+    readonly category: string;
+    readonly severity: string;
+    readonly amountMinorUnits: string;
+    readonly isFullSlash: boolean;
+    readonly status: string;
+    readonly txId?: string | null;
+    readonly initiatedAt: string;
+  },
+  client?: PoolClient,
+): Promise<void> {
   await query(
     `INSERT INTO slash_events
        (id, agent_id, bond_id, attestation_id, decision_id, flag_id,
@@ -153,6 +164,7 @@ export async function insertSlashEvent(input: {
       input.txId ?? null,
       input.initiatedAt,
     ],
+    client,
   );
 }
 
@@ -200,16 +212,19 @@ export async function listSlashEventsByAgent(
   return result.rows;
 }
 
-export async function insertReputationRecord(input: {
-  readonly id: string;
-  readonly agentId: string;
-  readonly score: number;
-  readonly standing: string;
-  readonly factors: unknown;
-  readonly triggeredByEvent: string;
-  readonly modelVersion: string;
-  readonly updatedAt: string;
-}): Promise<void> {
+export async function insertReputationRecord(
+  input: {
+    readonly id: string;
+    readonly agentId: string;
+    readonly score: number;
+    readonly standing: string;
+    readonly factors: unknown;
+    readonly triggeredByEvent: string;
+    readonly modelVersion: string;
+    readonly updatedAt: string;
+  },
+  client?: PoolClient,
+): Promise<void> {
   await query(
     `INSERT INTO reputation_records
        (id, agent_id, score, standing, factors, triggered_by_event,
@@ -225,6 +240,7 @@ export async function insertReputationRecord(input: {
       input.modelVersion,
       input.updatedAt,
     ],
+    client,
   );
 }
 

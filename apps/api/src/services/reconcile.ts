@@ -11,6 +11,7 @@
 import type { ChainHandle } from "@bond/midnight-adapter";
 import { readPublicState } from "@bond/midnight-adapter";
 import { query } from "../db/pool.js";
+import { withTransaction } from "../db/pool.js";
 import {
   findLiveBondByAgent,
   updateAgentStatus,
@@ -67,20 +68,25 @@ export async function runReconciliationOnce(
     }
     if (chain.status !== row.status) {
       conflicts += 1;
-      await updateAgentStatus(row.id, chain.status);
-      await markAgentSync(row.id, "conflicted");
-      await recordEvent({
-        type: "CHAIN_DIVERGENCE_DETECTED",
-        agentId: row.id,
-        actor: "system:reconcile",
-        payload: {
-          field: "agent.status",
-          database: row.status,
-          chain: chain.status,
-        },
+      await withTransaction(async (client) => {
+        await updateAgentStatus(row.id, chain.status, client);
+        await markAgentSync(row.id, "conflicted", client);
+        await recordEvent(
+          {
+            type: "CHAIN_DIVERGENCE_DETECTED",
+            agentId: row.id,
+            actor: "system:reconcile",
+            payload: {
+              field: "agent.status",
+              database: row.status,
+              chain: chain.status,
+            },
+          },
+          client,
+        );
+        await markAgentSync(row.id, "in-sync", client);
       });
       healed += 1;
-      await markAgentSync(row.id, "in-sync");
     }
     const bond = await findLiveBondByAgent(row.id);
     if (
@@ -90,17 +96,26 @@ export async function runReconciliationOnce(
       bond.status !== chain.bondStatus
     ) {
       conflicts += 1;
-      await updateBond(bond.id, { status: chain.bondStatus });
-      await recordEvent({
-        type: "CHAIN_DIVERGENCE_DETECTED",
-        agentId: row.id,
-        bondId: bond.id,
-        actor: "system:reconcile",
-        payload: {
-          field: "bond.status",
-          database: bond.status,
-          chain: chain.bondStatus,
-        },
+      await withTransaction(async (client) => {
+        await updateBond(
+          bond.id,
+          { status: chain.bondStatus ?? undefined },
+          client,
+        );
+        await recordEvent(
+          {
+            type: "CHAIN_DIVERGENCE_DETECTED",
+            agentId: row.id,
+            bondId: bond.id,
+            actor: "system:reconcile",
+            payload: {
+              field: "bond.status",
+              database: bond.status,
+              chain: chain.bondStatus,
+            },
+          },
+          client,
+        );
       });
       healed += 1;
     }

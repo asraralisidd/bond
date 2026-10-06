@@ -5,15 +5,18 @@
 import { query } from "../pool.js";
 import type { PoolClient } from "pg";
 
-export async function insertEvidenceDescriptor(input: {
-  readonly id: string;
-  readonly agentId: string;
-  readonly contentHash: string;
-  readonly category: string;
-  readonly storageRef?: string | null;
-  readonly submittedBy: string;
-  readonly submittedAt: string;
-}): Promise<void> {
+export async function insertEvidenceDescriptor(
+  input: {
+    readonly id: string;
+    readonly agentId: string;
+    readonly contentHash: string;
+    readonly category: string;
+    readonly storageRef?: string | null;
+    readonly submittedBy: string;
+    readonly submittedAt: string;
+  },
+  client?: PoolClient,
+): Promise<void> {
   await query(
     `INSERT INTO evidence_descriptors
        (id, agent_id, content_hash, category, storage_ref, submitted_by, submitted_at)
@@ -28,6 +31,7 @@ export async function insertEvidenceDescriptor(input: {
       input.submittedBy,
       input.submittedAt,
     ],
+    client,
   );
 }
 
@@ -41,15 +45,18 @@ export interface RiskAnalysisRow {
   readonly request_id: string | null;
 }
 
-export async function insertRiskAnalysis(input: {
-  readonly id: string;
-  readonly agentId: string;
-  readonly engineVersion: string;
-  readonly rulesetVersion: string;
-  readonly scoringVersion: string;
-  readonly score: unknown;
-  readonly requestId?: string | null;
-}): Promise<void> {
+export async function insertRiskAnalysis(
+  input: {
+    readonly id: string;
+    readonly agentId: string;
+    readonly engineVersion: string;
+    readonly rulesetVersion: string;
+    readonly scoringVersion: string;
+    readonly score: unknown;
+    readonly requestId?: string | null;
+  },
+  client?: PoolClient,
+): Promise<void> {
   await query(
     `INSERT INTO risk_analyses
        (id, agent_id, engine_version, ruleset_version, scoring_version, score, request_id)
@@ -63,6 +70,7 @@ export async function insertRiskAnalysis(input: {
       JSON.stringify(input.score),
       input.requestId ?? null,
     ],
+    client,
   );
 }
 
@@ -79,19 +87,22 @@ export interface RiskFlagRow {
   readonly supersedes: string | null;
 }
 
-export async function insertRiskFlag(input: {
-  readonly id: string;
-  readonly agentId: string;
-  readonly analysisId?: string | null;
-  readonly category: string;
-  readonly severity: string;
-  readonly confidence: number;
-  readonly evidenceIds: readonly string[];
-  readonly modelVersion: string;
-  readonly status: string;
-  readonly supersedes?: string | null;
-  readonly detectedAt: string;
-}): Promise<void> {
+export async function insertRiskFlag(
+  input: {
+    readonly id: string;
+    readonly agentId: string;
+    readonly analysisId?: string | null;
+    readonly category: string;
+    readonly severity: string;
+    readonly confidence: number;
+    readonly evidenceIds: readonly string[];
+    readonly modelVersion: string;
+    readonly status: string;
+    readonly supersedes?: string | null;
+    readonly detectedAt: string;
+  },
+  client?: PoolClient,
+): Promise<void> {
   await query(
     `INSERT INTO risk_flags
        (id, agent_id, analysis_id, category, severity, confidence,
@@ -110,6 +121,7 @@ export async function insertRiskFlag(input: {
       input.supersedes ?? null,
       input.detectedAt,
     ],
+    client,
   );
 }
 

@@ -12,12 +12,15 @@
  * …) so this module never imports risk/attestor specifics directly.
  */
 import { randomUUID } from "node:crypto";
+import type { PoolClient } from "pg";
 import { transitionTransactionStatus } from "@bond/shared-types";
 import type { TransactionPurpose, TransactionStatus } from "@bond/shared-types";
 import type { ChainHandle, OperationResult } from "@bond/midnight-adapter";
 import { confirmOperation } from "@bond/midnight-adapter";
+import { withTransaction } from "../db/pool.js";
 import {
   findChainTransactionById,
+  findChainTransactionByIdForUpdate,
   findChainTransactionByIdempotencyKey,
   insertChainTransaction,
   listPendingChainTransactions,
@@ -49,7 +52,10 @@ export function registerPurposeExecutor(
   executors.set(purpose, executor);
 }
 
-export type PurposeFinalizer = (row: ChainTxRow) => Promise<void>;
+export type PurposeFinalizer = (
+  row: ChainTxRow,
+  client: PoolClient,
+) => Promise<void>;
 
 const finalizers = new Map<string, PurposeFinalizer>();
 
@@ -79,31 +85,62 @@ export async function createTransactionIntent(input: {
   if (existing) {
     return { row: existing, created: false };
   }
-  const row = await insertChainTransaction({
-    id: randomUUID(),
-    purpose: input.purpose,
-    agentId: input.agentId,
-    bondId: input.bondId,
-    idempotencyKey: input.idempotencyKey,
-    status: "IDLE",
-    nullifier: input.nullifier,
-    params: input.params,
-  });
-  await recordEvent({
-    type: "TRANSACTION_STATUS_CHANGED",
-    agentId: input.agentId,
-    bondId: input.bondId,
-    txId: row.id,
-    actor: `operator:${input.operatorId}`,
-    requestId: input.requestId,
-    payload: {
-      transactionId: row.id,
-      from: null,
-      to: "IDLE",
-      purpose: input.purpose,
-    },
-  });
-  return { row, created: true };
+  try {
+    const row = await withTransaction(async (client) => {
+      const created = await insertChainTransaction(
+        {
+          id: randomUUID(),
+          purpose: input.purpose,
+          agentId: input.agentId,
+          bondId: input.bondId,
+          idempotencyKey: input.idempotencyKey,
+          status: "IDLE",
+          nullifier: input.nullifier,
+          params: input.params,
+        },
+        client,
+      );
+      await recordEvent(
+        {
+          type: "TRANSACTION_STATUS_CHANGED",
+          agentId: input.agentId,
+          bondId: input.bondId,
+          txId: created.id,
+          actor: `operator:${input.operatorId}`,
+          requestId: input.requestId,
+          payload: {
+            transactionId: created.id,
+            from: null,
+            to: "IDLE",
+            purpose: input.purpose,
+          },
+        },
+        client,
+      );
+      return created;
+    });
+    return { row, created: true };
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      // Lost a concurrent insert race on idempotency_key: the winner's
+      // row is the replay source. Never a duplicate action.
+      const winner = await findChainTransactionByIdempotencyKey(
+        input.idempotencyKey,
+      );
+      if (winner) {
+        return { row: winner, created: false };
+      }
+    }
+    throw error;
+  }
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { code?: string }).code === "23505"
+  );
 }
 
 export async function getTransactionService(id: string): Promise<ChainTxRow> {
@@ -120,20 +157,34 @@ export async function advanceTransactionService(
   actor: string,
   requestId?: string | null,
 ): Promise<ChainTxRow> {
-  const row = await getTransactionService(id);
-  const next = transitionTransactionStatus(row.status as TransactionStatus, to);
-  await updateChainTransaction(id, { status: next });
-  await recordEvent({
-    type: "TRANSACTION_STATUS_CHANGED",
-    agentId: row.agent_id,
-    bondId: row.bond_id,
-    txId: id,
-    actor,
-    requestId,
-    payload: { transactionId: id, from: row.status, to: next },
+  return withTransaction(async (client) => {
+    const row = await findChainTransactionByIdForUpdate(id, client);
+    if (!row) {
+      throw new ApiError("NOT_FOUND", "Transaction not found");
+    }
+    const next = transitionTransactionStatus(
+      row.status as TransactionStatus,
+      to,
+    );
+    await updateChainTransaction(id, { status: next }, client);
+    await recordEvent(
+      {
+        type: "TRANSACTION_STATUS_CHANGED",
+        agentId: row.agent_id,
+        bondId: row.bond_id,
+        txId: id,
+        actor,
+        requestId,
+        payload: { transactionId: id, from: row.status, to: next },
+      },
+      client,
+    );
+    const updated = await findChainTransactionById(id, client);
+    if (!updated) {
+      throw new ApiError("NOT_FOUND", "Transaction not found");
+    }
+    return updated;
   });
-  const updated = await getTransactionService(id);
-  return updated;
 }
 
 async function setTxStatus(
@@ -145,20 +196,36 @@ async function setTxStatus(
     confirmed?: boolean;
   },
 ): Promise<void> {
-  const next = transitionTransactionStatus(row.status as TransactionStatus, to);
-  await updateChainTransaction(row.id, {
-    status: next,
-    chainTxId: extra?.chainTxId,
-    lastError: extra?.error ?? null,
-    confirmed: extra?.confirmed,
-  });
-  await recordEvent({
-    type: "TRANSACTION_STATUS_CHANGED",
-    agentId: row.agent_id,
-    bondId: row.bond_id,
-    txId: row.id,
-    actor: "system:worker",
-    payload: { transactionId: row.id, from: row.status, to: next },
+  await withTransaction(async (client) => {
+    const fresh = await findChainTransactionByIdForUpdate(row.id, client);
+    if (!fresh) {
+      throw new ApiError("NOT_FOUND", "Transaction not found");
+    }
+    const next = transitionTransactionStatus(
+      fresh.status as TransactionStatus,
+      to,
+    );
+    await updateChainTransaction(
+      row.id,
+      {
+        status: next,
+        chainTxId: extra?.chainTxId,
+        lastError: extra?.error ?? null,
+        confirmed: extra?.confirmed,
+      },
+      client,
+    );
+    await recordEvent(
+      {
+        type: "TRANSACTION_STATUS_CHANGED",
+        agentId: fresh.agent_id,
+        bondId: fresh.bond_id,
+        txId: fresh.id,
+        actor: "system:worker",
+        payload: { transactionId: fresh.id, from: fresh.status, to: next },
+      },
+      client,
+    );
   });
 }
 
@@ -219,6 +286,54 @@ export async function confirmTransactionService(
   actor: string,
   requestId?: string | null,
 ): Promise<ChainTxRow> {
+  if (handle.mode === "SIMULATED") {
+    return withTransaction(async (client) => {
+      const row = await findChainTransactionByIdForUpdate(id, client);
+      if (!row) {
+        throw new ApiError("NOT_FOUND", "Transaction not found");
+      }
+      if (row.status !== "SUBMITTED") {
+        throw new ApiError(
+          "INVALID_TRANSACTION_TRANSITION",
+          "Only SUBMITTED transactions can confirm",
+        );
+      }
+      await updateChainTransaction(
+        id,
+        { status: "CONFIRMED", confirmed: true },
+        client,
+      );
+      await recordEvent(
+        {
+          type: "TRANSACTION_STATUS_CHANGED",
+          agentId: row.agent_id,
+          bondId: row.bond_id,
+          txId: id,
+          actor,
+          requestId,
+          payload: {
+            transactionId: id,
+            from: "SUBMITTED",
+            to: "CONFIRMED",
+            mode: "SIMULATED",
+          },
+        },
+        client,
+      );
+      const finalizer = finalizers.get(row.purpose);
+      if (finalizer) {
+        const fresh = await findChainTransactionById(id, client);
+        if (fresh) {
+          await finalizer(fresh, client);
+        }
+      }
+      const updated = await findChainTransactionById(id, client);
+      if (!updated) {
+        throw new ApiError("NOT_FOUND", "Transaction not found");
+      }
+      return updated;
+    });
+  }
   const row = await getTransactionService(id);
   if (row.status !== "SUBMITTED") {
     throw new ApiError(
@@ -226,40 +341,66 @@ export async function confirmTransactionService(
       "Only SUBMITTED transactions can confirm",
     );
   }
-  if (handle.mode === "SIMULATED") {
-    await setTxStatus(row, "CONFIRMED", { confirmed: true });
-    await recordEvent({
-      type: "TRANSACTION_STATUS_CHANGED",
-      agentId: row.agent_id,
-      bondId: row.bond_id,
-      txId: id,
-      actor,
-      requestId,
-      payload: {
-        transactionId: id,
-        from: "SUBMITTED",
-        to: "CONFIRMED",
-        mode: "SIMULATED",
-      },
-    });
-    const finalizer = finalizers.get(row.purpose);
-    if (finalizer) {
-      await finalizer(await getTransactionService(id));
-    }
-    return getTransactionService(id);
-  }
   if (!row.chain_tx_id) {
     throw new ApiError("INVALID_IDENTIFIER", "No chain reference to confirm");
   }
+  // Network I/O happens OUTSIDE any database transaction: a hung prover
+  // must never hold row locks or pool connections hostage.
   const result = await confirmOperation(handle, row.chain_tx_id);
-  if (result.status === "CONFIRMED") {
-    await setTxStatus(row, "CONFIRMED", { confirmed: true });
-    const finalizer = finalizers.get(row.purpose);
-    if (finalizer) {
-      await finalizer(await getTransactionService(id));
+  return withTransaction(async (client) => {
+    const fresh = await findChainTransactionByIdForUpdate(id, client);
+    if (!fresh) {
+      throw new ApiError("NOT_FOUND", "Transaction not found");
     }
-  } else {
-    await setTxStatus(row, "FAILED", { error: "MIDNIGHT_CONFIRMATION_FAILED" });
-  }
-  return getTransactionService(id);
+    if (fresh.status === "CONFIRMED") {
+      return fresh;
+    }
+    if (fresh.status !== "SUBMITTED") {
+      throw new ApiError(
+        "INVALID_TRANSACTION_TRANSITION",
+        "Only SUBMITTED transactions can confirm",
+      );
+    }
+    if (result.status === "CONFIRMED") {
+      await updateChainTransaction(
+        id,
+        { status: "CONFIRMED", confirmed: true },
+        client,
+      );
+      const finalizer = finalizers.get(fresh.purpose);
+      if (finalizer) {
+        const current = await findChainTransactionById(id, client);
+        if (current) {
+          await finalizer(current, client);
+        }
+      }
+    } else {
+      await updateChainTransaction(
+        id,
+        { status: "FAILED", lastError: "MIDNIGHT_CONFIRMATION_FAILED" },
+        client,
+      );
+    }
+    await recordEvent(
+      {
+        type: "TRANSACTION_STATUS_CHANGED",
+        agentId: fresh.agent_id,
+        bondId: fresh.bond_id,
+        txId: id,
+        actor,
+        requestId,
+        payload: {
+          transactionId: id,
+          from: fresh.status,
+          to: result.status === "CONFIRMED" ? "CONFIRMED" : "FAILED",
+        },
+      },
+      client,
+    );
+    const updated = await findChainTransactionById(id, client);
+    if (!updated) {
+      throw new ApiError("NOT_FOUND", "Transaction not found");
+    }
+    return updated;
+  });
 }

@@ -4,6 +4,7 @@
  * adapter from the same request shapes when a wallet is present.
  */
 import { randomUUID } from "node:crypto";
+import type { PoolClient } from "pg";
 import {
   deriveReputation,
   parseAgentId,
@@ -237,7 +238,10 @@ export function registerBondExecutors(): void {
   );
 }
 
-async function refreshReputation(agentId: string): Promise<void> {
+async function refreshReputation(
+  agentId: string,
+  client: PoolClient,
+): Promise<void> {
   const counts: {
     rows: {
       confirmed_flags: string;
@@ -252,6 +256,7 @@ async function refreshReputation(agentId: string): Promise<void> {
        (SELECT COUNT(*) FROM slash_events WHERE agent_id = $1 AND is_full_slash = TRUE) AS full_slashes,
        (SELECT COUNT(*) FROM bonds WHERE agent_id = $1 AND status = 'WITHDRAWN') AS clean_bonds`,
     [agentId],
+    client,
   );
   const c = counts.rows[0];
   if (!c) {
@@ -270,121 +275,157 @@ async function refreshReputation(agentId: string): Promise<void> {
     triggeredByEvent: parseProtocolEventId(randomUUID()),
     updatedAt: new Date().toISOString(),
   });
-  await insertReputationRecord({
-    id: record.reputationId as string,
-    agentId,
-    score: record.score,
-    standing: record.standing,
-    factors: record.factors,
-    triggeredByEvent: record.triggeredByEvent as string,
-    modelVersion: record.modelVersion,
-    updatedAt: record.updatedAt,
-  });
-  await recordEvent({
-    type: "REPUTATION_UPDATED",
-    agentId,
-    actor: "system:reputation",
-    payload: { reputationId: record.reputationId, score: record.score },
-  });
+  await insertReputationRecord(
+    {
+      id: record.reputationId as string,
+      agentId,
+      score: record.score,
+      standing: record.standing,
+      factors: record.factors,
+      triggeredByEvent: record.triggeredByEvent as string,
+      modelVersion: record.modelVersion,
+      updatedAt: record.updatedAt,
+    },
+    client,
+  );
+  await recordEvent(
+    {
+      type: "REPUTATION_UPDATED",
+      agentId,
+      actor: "system:reputation",
+      payload: { reputationId: record.reputationId, score: record.score },
+    },
+    client,
+  );
 }
 
 /** Mirror updates applied when a transaction CONFIRMS (chain already final). */
 export function registerBondFinalizers(): void {
-  registerPurposeFinalizer("FUND_BOND", async (row: ChainTxRow) => {
-    if (!row.bond_id || !row.agent_id) {
-      return;
-    }
-    await updateBond(row.bond_id, { status: "ACTIVE" });
-    await updateAgentStatus(row.agent_id, "BONDED");
-    await recordEvent({
-      type: "BOND_STATUS_CHANGED",
-      agentId: row.agent_id,
-      bondId: row.bond_id,
-      txId: row.id,
-      actor: "system:worker",
-      payload: { to: "ACTIVE" },
-    });
-  });
-  registerPurposeFinalizer("ENFORCEMENT", async (row: ChainTxRow) => {
-    const params: { rows: { params: unknown }[] } = await query(
-      "SELECT params FROM chain_transactions WHERE id = $1",
-      [row.id],
-    );
-    const stored = (params.rows[0]?.params ?? {}) as {
-      attestationId?: string;
-      decisionId?: string;
-      flagId?: string;
-      amountMinorUnits?: string;
-      slashEventId?: string;
-    };
-    if (!row.bond_id || !row.agent_id) {
-      return;
-    }
-    const bond = await findBondById(row.bond_id);
-    if (!bond) {
-      return;
-    }
-    const amount = stored.amountMinorUnits ?? "0";
-    const remaining =
-      BigInt(bond.commitment_minor_units) -
-      BigInt(bond.slashed_total_minor_units);
-    const slashed = amount === "FULL" ? remaining : BigInt(amount || "0");
-    const total = BigInt(bond.slashed_total_minor_units) + slashed;
-    const full = total >= BigInt(bond.commitment_minor_units);
-    await updateBond(row.bond_id, {
-      status: full ? "FULLY_SLASHED" : "PARTIALLY_SLASHED",
-      slashedTotalMinorUnits: total.toString(),
-    });
-    await updateAgentStatus(row.agent_id, "SLASHED");
-    const slashId = stored.slashEventId ?? randomUUID();
-    const slashes = await listSlashEventsByAgent(row.agent_id, 100);
-    const known = slashes.some((s) => s.id === slashId);
-    if (!known) {
-      if (!stored.flagId) {
-        throw new Error("ENFORCEMENT finalizer missing flagId");
+  registerPurposeFinalizer(
+    "FUND_BOND",
+    async (row: ChainTxRow, client: PoolClient) => {
+      if (!row.bond_id || !row.agent_id) {
+        return;
       }
-      await insertSlashEvent({
-        id: slashId,
-        agentId: row.agent_id,
-        bondId: row.bond_id,
-        attestationId: stored.attestationId ?? "unknown",
-        decisionId: stored.decisionId ?? stored.attestationId ?? "unknown",
-        flagId: stored.flagId,
-        category: "policy-violation",
-        severity: full ? "critical" : "high",
-        amountMinorUnits: slashed.toString(),
-        isFullSlash: full,
-        status: "initiated",
-        txId: row.id,
-        initiatedAt: new Date().toISOString(),
-      });
-    }
-    await completeSlashEvent(slashId, new Date().toISOString());
-    await recordEvent({
-      type: "SLASH_COMPLETED",
-      agentId: row.agent_id,
-      bondId: row.bond_id,
-      txId: row.id,
-      actor: "system:worker",
-      payload: { slashEventId: slashId, bondId: row.bond_id },
-    });
-    await refreshReputation(row.agent_id);
-  });
-  registerPurposeFinalizer("RELEASE_BOND", async (row: ChainTxRow) => {
-    if (!row.bond_id) {
-      return;
-    }
-    await updateBond(row.bond_id, { status: "WITHDRAWABLE" });
-  });
-  registerPurposeFinalizer("WITHDRAW", async (row: ChainTxRow) => {
-    if (!row.bond_id || !row.agent_id) {
-      return;
-    }
-    await updateBond(row.bond_id, {
-      status: "WITHDRAWN",
-      withdrawalConsumed: true,
-    });
-    await updateAgentStatus(row.agent_id, "WITHDRAWABLE");
-    await refreshReputation(row.agent_id);
-  });
+      await updateBond(row.bond_id, { status: "ACTIVE" }, client);
+      await updateAgentStatus(row.agent_id, "BONDED", client);
+      await recordEvent(
+        {
+          type: "BOND_STATUS_CHANGED",
+          agentId: row.agent_id,
+          bondId: row.bond_id,
+          txId: row.id,
+          actor: "system:worker",
+          payload: { to: "ACTIVE" },
+        },
+        client,
+      );
+    },
+  );
+  registerPurposeFinalizer(
+    "ENFORCEMENT",
+    async (row: ChainTxRow, client: PoolClient) => {
+      const params: { rows: { params: unknown }[] } = await query(
+        "SELECT params FROM chain_transactions WHERE id = $1",
+        [row.id],
+        client,
+      );
+      const stored = (params.rows[0]?.params ?? {}) as {
+        attestationId?: string;
+        decisionId?: string;
+        flagId?: string;
+        amountMinorUnits?: string;
+        slashEventId?: string;
+      };
+      if (!row.bond_id || !row.agent_id) {
+        return;
+      }
+      const bond = await findBondById(row.bond_id, client);
+      if (!bond) {
+        return;
+      }
+      const amount = stored.amountMinorUnits ?? "0";
+      const remaining =
+        BigInt(bond.commitment_minor_units) -
+        BigInt(bond.slashed_total_minor_units);
+      const slashed = amount === "FULL" ? remaining : BigInt(amount || "0");
+      const total = BigInt(bond.slashed_total_minor_units) + slashed;
+      const full = total >= BigInt(bond.commitment_minor_units);
+      await updateBond(
+        row.bond_id,
+        {
+          status: full ? "FULLY_SLASHED" : "PARTIALLY_SLASHED",
+          slashedTotalMinorUnits: total.toString(),
+        },
+        client,
+      );
+      await updateAgentStatus(row.agent_id, "SLASHED", client);
+      const slashId = stored.slashEventId ?? randomUUID();
+      const slashes = await listSlashEventsByAgent(row.agent_id, 100, client);
+      const known = slashes.some((s) => s.id === slashId);
+      if (!known) {
+        if (!stored.flagId) {
+          throw new Error("ENFORCEMENT finalizer missing flagId");
+        }
+        await insertSlashEvent(
+          {
+            id: slashId,
+            agentId: row.agent_id,
+            bondId: row.bond_id,
+            attestationId: stored.attestationId ?? "unknown",
+            decisionId: stored.decisionId ?? stored.attestationId ?? "unknown",
+            flagId: stored.flagId,
+            category: "policy-violation",
+            severity: full ? "critical" : "high",
+            amountMinorUnits: slashed.toString(),
+            isFullSlash: full,
+            status: "initiated",
+            txId: row.id,
+            initiatedAt: new Date().toISOString(),
+          },
+          client,
+        );
+      }
+      await completeSlashEvent(slashId, new Date().toISOString(), client);
+      await recordEvent(
+        {
+          type: "SLASH_COMPLETED",
+          agentId: row.agent_id,
+          bondId: row.bond_id,
+          txId: row.id,
+          actor: "system:worker",
+          payload: { slashEventId: slashId, bondId: row.bond_id },
+        },
+        client,
+      );
+      await refreshReputation(row.agent_id, client);
+    },
+  );
+  registerPurposeFinalizer(
+    "RELEASE_BOND",
+    async (row: ChainTxRow, client: PoolClient) => {
+      if (!row.bond_id) {
+        return;
+      }
+      await updateBond(row.bond_id, { status: "WITHDRAWABLE" }, client);
+    },
+  );
+  registerPurposeFinalizer(
+    "WITHDRAW",
+    async (row: ChainTxRow, client: PoolClient) => {
+      if (!row.bond_id || !row.agent_id) {
+        return;
+      }
+      await updateBond(
+        row.bond_id,
+        {
+          status: "WITHDRAWN",
+          withdrawalConsumed: true,
+        },
+        client,
+      );
+      await updateAgentStatus(row.agent_id, "WITHDRAWABLE", client);
+      await refreshReputation(row.agent_id, client);
+    },
+  );
 }

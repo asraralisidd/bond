@@ -15,6 +15,7 @@ import {
 import type { AgentRow } from "../db/stores/registry.js";
 import { parseAgentType } from "../http/dto.js";
 import { ApiError } from "../http/errors.js";
+import { withTransaction } from "../db/pool.js";
 import { recordEvent } from "./events.js";
 
 export const AGENT_POLICY_VERSION = "bond-policy-v1";
@@ -51,25 +52,33 @@ export async function registerAgentService(
   }
   const id = randomUUID();
   try {
-    const row = await insertAgent({
-      id,
-      operatorId: input.operatorId,
-      platform,
-      agentType,
-      capabilities: input.capabilities,
-      externalRef,
-      status: "REGISTERED",
-      policyVersion: AGENT_POLICY_VERSION,
+    return await withTransaction(async (client) => {
+      const row = await insertAgent(
+        {
+          id,
+          operatorId: input.operatorId,
+          platform,
+          agentType,
+          capabilities: input.capabilities,
+          externalRef,
+          status: "REGISTERED",
+          policyVersion: AGENT_POLICY_VERSION,
+        },
+        client,
+      );
+      await recordEvent(
+        {
+          type: "AGENT_REGISTERED",
+          agentId: id,
+          actor: input.actor ?? `operator:${input.operatorId}`,
+          policyVersion: AGENT_POLICY_VERSION,
+          requestId: input.requestId,
+          payload: { operatorId: input.operatorId, status: "REGISTERED" },
+        },
+        client,
+      );
+      return row;
     });
-    await recordEvent({
-      type: "AGENT_REGISTERED",
-      agentId: id,
-      actor: input.actor ?? `operator:${input.operatorId}`,
-      policyVersion: AGENT_POLICY_VERSION,
-      requestId: input.requestId,
-      payload: { operatorId: input.operatorId, status: "REGISTERED" },
-    });
-    return row;
   } catch (error) {
     if (error instanceof Error && /duplicate key|unique/i.test(error.message)) {
       throw new ApiError(
@@ -111,16 +120,21 @@ export async function transitionAgentService(
 ): Promise<AgentRow> {
   const row = await getAgentService(id, operatorId);
   const next = transitionAgentStatus(row.status as AgentStatus, to);
-  const updated = await updateAgentStatus(id, next);
-  if (!updated) {
-    throw new ApiError("NOT_FOUND", "Agent not found");
-  }
-  await recordEvent({
-    type: "AGENT_STATUS_CHANGED",
-    agentId: id,
-    actor: `operator:${operatorId}`,
-    requestId,
-    payload: { from: row.status, to: next },
+  return withTransaction(async (client) => {
+    const updated = await updateAgentStatus(id, next, client);
+    if (!updated) {
+      throw new ApiError("NOT_FOUND", "Agent not found");
+    }
+    await recordEvent(
+      {
+        type: "AGENT_STATUS_CHANGED",
+        agentId: id,
+        actor: `operator:${operatorId}`,
+        requestId,
+        payload: { from: row.status, to: next },
+      },
+      client,
+    );
+    return updated;
   });
-  return updated;
 }

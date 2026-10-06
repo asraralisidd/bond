@@ -7,8 +7,12 @@
 import { analyzeActivity } from "@bond/risk-engine";
 import type { RawActivityInput } from "@bond/risk-engine";
 import { randomUUID } from "node:crypto";
-import { getAgentService, transitionAgentService } from "./agents.js";
+import { transitionAgentStatus } from "@bond/shared-types";
+import type { AgentStatus } from "@bond/shared-types";
+import { getAgentService } from "./agents.js";
 import { ApiError } from "../http/errors.js";
+import { withTransaction } from "../db/pool.js";
+import { updateAgentStatus } from "../db/stores/registry.js";
 import { recordEvent } from "./events.js";
 import {
   insertEvidenceDescriptor,
@@ -45,59 +49,84 @@ export async function analyzeActivityService(
     }
     throw error;
   }
-  await insertRiskAnalysis({
-    id: result.analysisId,
-    agentId: input.agentId,
-    engineVersion: result.engineVersion,
-    rulesetVersion: result.ruleSetVersion,
-    scoringVersion: result.scoringVersion,
-    score: result.score,
-    requestId: input.requestId,
-  });
-  const flagIds: string[] = [];
-  for (const flag of result.flags) {
-    for (const ref of flag.evidenceRefs) {
-      await insertEvidenceDescriptor({
-        id: `ev_${randomUUID()}`,
+  // Pure engine execution happens OUTSIDE any database transaction:
+  // it needs no connection and must never hold one.
+  return withTransaction(async (client) => {
+    await insertRiskAnalysis(
+      {
+        id: result.analysisId,
         agentId: input.agentId,
-        contentHash: ref.contentHash,
-        category: ref.category,
-        storageRef: null,
-        submittedBy: `operator:${input.operatorId}`,
-        submittedAt: flag.detectedAt,
-      });
-    }
-    await insertRiskFlag({
-      id: flag.riskFlagId as string,
-      agentId: input.agentId,
-      analysisId: result.analysisId,
-      category: flag.category,
-      severity: flag.severity,
-      confidence: flag.confidence,
-      evidenceIds: flag.evidenceRefs.map((r) => r.evidenceId as string),
-      modelVersion: flag.modelVersion,
-      status: flag.status,
-      supersedes: flag.supersedes as string | null,
-      detectedAt: flag.detectedAt,
-    });
-    flagIds.push(flag.riskFlagId as string);
-    await recordEvent({
-      type: "RISK_FLAG_RAISED",
-      agentId: input.agentId,
-      actor: "system:risk-engine",
-      requestId: input.requestId,
-      payload: { riskFlagId: flag.riskFlagId, severity: flag.severity },
-    });
-  }
-  if (flagIds.length > 0 && agent.status === "ACTIVE") {
-    await transitionAgentService(
-      input.agentId,
-      input.operatorId,
-      "FLAGGED",
-      input.requestId,
+        engineVersion: result.engineVersion,
+        rulesetVersion: result.ruleSetVersion,
+        scoringVersion: result.scoringVersion,
+        score: result.score,
+        requestId: input.requestId,
+      },
+      client,
     );
-  }
-  return { analysisId: result.analysisId, flagIds, score: result.score };
+    const flagIds: string[] = [];
+    for (const flag of result.flags) {
+      for (const ref of flag.evidenceRefs) {
+        await insertEvidenceDescriptor(
+          {
+            id: `ev_${randomUUID()}`,
+            agentId: input.agentId,
+            contentHash: ref.contentHash,
+            category: ref.category,
+            storageRef: null,
+            submittedBy: `operator:${input.operatorId}`,
+            submittedAt: flag.detectedAt,
+          },
+          client,
+        );
+      }
+      await insertRiskFlag(
+        {
+          id: flag.riskFlagId as string,
+          agentId: input.agentId,
+          analysisId: result.analysisId,
+          category: flag.category,
+          severity: flag.severity,
+          confidence: flag.confidence,
+          evidenceIds: flag.evidenceRefs.map((r) => r.evidenceId as string),
+          modelVersion: flag.modelVersion,
+          status: flag.status,
+          supersedes: flag.supersedes as string | null,
+          detectedAt: flag.detectedAt,
+        },
+        client,
+      );
+      flagIds.push(flag.riskFlagId as string);
+      await recordEvent(
+        {
+          type: "RISK_FLAG_RAISED",
+          agentId: input.agentId,
+          actor: "system:risk-engine",
+          requestId: input.requestId,
+          payload: { riskFlagId: flag.riskFlagId, severity: flag.severity },
+        },
+        client,
+      );
+    }
+    if (flagIds.length > 0 && agent.status === "ACTIVE") {
+      const next = transitionAgentStatus(
+        agent.status as AgentStatus,
+        "FLAGGED",
+      );
+      await updateAgentStatus(input.agentId, next, client);
+      await recordEvent(
+        {
+          type: "AGENT_STATUS_CHANGED",
+          agentId: input.agentId,
+          actor: "system:risk-engine",
+          requestId: input.requestId,
+          payload: { from: agent.status, to: next },
+        },
+        client,
+      );
+    }
+    return { analysisId: result.analysisId, flagIds, score: result.score };
+  });
 }
 
 export function toScoreDto(score: unknown): unknown {

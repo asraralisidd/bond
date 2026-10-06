@@ -28,6 +28,7 @@ import type {
   RiskFlagStatus,
 } from "@bond/shared-types";
 import { ApiError } from "../http/errors.js";
+import { withTransaction } from "../db/pool.js";
 import { recordEvent } from "./events.js";
 import {
   findAttestationById,
@@ -191,22 +192,30 @@ export async function requestAttestationService(input: {
     requestedAt: nowIso,
     expiresAt: input.expiresAt,
   });
-  await insertAttestation({
-    id,
-    flagId: flag.id,
-    agentId: flag.agent_id,
-    threshold,
-    policyVersion: "bond-policy-v1",
-    status: "requested",
-    requestedAt: nowIso,
-    expiresAt: input.expiresAt,
-  });
-  await recordEvent({
-    type: "ATTESTATION_ISSUED",
-    agentId: flag.agent_id,
-    actor: `operator:${input.operatorId}`,
-    requestId: input.requestId,
-    payload: { attestationId: id, riskFlagId: flag.id },
+  await withTransaction(async (client) => {
+    await insertAttestation(
+      {
+        id,
+        flagId: flag.id,
+        agentId: flag.agent_id,
+        threshold,
+        policyVersion: "bond-policy-v1",
+        status: "requested",
+        requestedAt: nowIso,
+        expiresAt: input.expiresAt,
+      },
+      client,
+    );
+    await recordEvent(
+      {
+        type: "ATTESTATION_ISSUED",
+        agentId: flag.agent_id,
+        actor: `operator:${input.operatorId}`,
+        requestId: input.requestId,
+        payload: { attestationId: id, riskFlagId: flag.id },
+      },
+      client,
+    );
   });
   return { attestationId: id, status: "requested" };
 }
@@ -243,17 +252,26 @@ export async function submitVerdictService(input: {
     }
     throw error;
   }
-  await updateAttestation(row.id, {
-    verdicts: updated.verdicts,
-    status: updated.status,
-    decision: updated.decision,
-  });
-  await recordEvent({
-    type: "ATTESTATION_RECORDED",
-    agentId: row.agent_id,
-    actor: `attestor:${input.attestorId}`,
-    requestId: input.requestId,
-    payload: { attestationId: row.id, verdict: input.verdict },
+  await withTransaction(async (client) => {
+    await updateAttestation(
+      row.id,
+      {
+        verdicts: updated.verdicts,
+        status: updated.status,
+        decision: updated.decision,
+      },
+      client,
+    );
+    await recordEvent(
+      {
+        type: "ATTESTATION_RECORDED",
+        agentId: row.agent_id,
+        actor: `attestor:${input.attestorId}`,
+        requestId: input.requestId,
+        payload: { attestationId: row.id, verdict: input.verdict },
+      },
+      client,
+    );
   });
   return { status: updated.status, verdicts: updated.verdicts.length };
 }
@@ -306,15 +324,22 @@ export async function autoEvaluateService(input: {
       break;
     }
   }
-  await updateAttestation(row.id, {
-    verdicts: attestation.verdicts,
-    status: attestation.status,
-    decision: attestation.decision,
+  await withTransaction(async (client) => {
+    await updateAttestation(
+      row.id,
+      {
+        verdicts: attestation.verdicts,
+        status: attestation.status,
+        decision: attestation.decision,
+      },
+      client,
+    );
+    await updateRiskFlagStatus(
+      row.flag_id,
+      attestation.status === "rejected" ? "dismissed" : "under-review",
+      client,
+    );
   });
-  await updateRiskFlagStatus(
-    row.flag_id,
-    attestation.status === "rejected" ? "dismissed" : "under-review",
-  );
   return { status: attestation.status, evaluations: outcomes };
 }
 
@@ -346,18 +371,27 @@ export async function issueDecisionService(input: {
     decisionExpiresAt: row.expires_at,
     nowIso,
   });
-  await updateAttestation(row.id, {
-    verdicts: decided.verdicts,
-    status: decided.status,
-    decision: decided.decision,
-  });
-  await updateRiskFlagStatus(row.flag_id, "attested");
-  await recordEvent({
-    type: "DECISION_ISSUED",
-    agentId: row.agent_id,
-    actor: `operator:${input.operatorId}`,
-    requestId: input.requestId,
-    payload: { attestationId: row.id, action },
+  await withTransaction(async (client) => {
+    await updateAttestation(
+      row.id,
+      {
+        verdicts: decided.verdicts,
+        status: decided.status,
+        decision: decided.decision,
+      },
+      client,
+    );
+    await updateRiskFlagStatus(row.flag_id, "attested", client);
+    await recordEvent(
+      {
+        type: "DECISION_ISSUED",
+        agentId: row.agent_id,
+        actor: `operator:${input.operatorId}`,
+        requestId: input.requestId,
+        payload: { attestationId: row.id, action },
+      },
+      client,
+    );
   });
   return { status: decided.status, action };
 }

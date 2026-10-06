@@ -46,6 +46,11 @@ const FALLBACK_CONFIG: ApiConfig = {
   logLevel: "info",
   midnightNetwork: "",
   devAuthToken: null,
+  pgConnectTimeoutMs: 5000,
+  pgIdleTimeoutMs: 30000,
+  pgStatementTimeoutMs: 30000,
+  pgPoolMax: 10,
+  idempotencyTtlHours: 24,
 };
 
 function loadConfigSafe(): ApiConfig {
