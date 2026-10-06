@@ -246,6 +246,10 @@ export const api = {
     get<TransactionView>(`/api/v1/transactions/${id}`),
   advanceTransaction: (id: string, status: string) =>
     post<TransactionView>(`/api/v1/transactions/${id}/advance`, { status }),
+  recordWalletSubmission: (id: string, chainTxId: string) =>
+    post<TransactionView>(`/api/v1/transactions/${id}/submitted`, {
+      chainTxId,
+    }),
   confirmTransaction: (id: string) =>
     post<TransactionView>(`/api/v1/transactions/${id}/confirm`, {}),
 

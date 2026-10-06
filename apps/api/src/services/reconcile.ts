@@ -9,7 +9,7 @@
  * off-chain intents), slash counts are informational.
  */
 import type { ChainHandle } from "@bond/midnight-adapter";
-import { readPublicState } from "@bond/midnight-adapter";
+import { readPublicState, readTransactionStatus } from "@bond/midnight-adapter";
 import { query } from "../db/pool.js";
 import { withTransaction } from "../db/pool.js";
 import {
@@ -18,8 +18,15 @@ import {
   updateBond,
 } from "../db/stores/registry.js";
 import { markAgentSync } from "../db/stores/registry.js";
-import { upsertSyncCheckpoint } from "../db/stores/chain.js";
+import {
+  clearReconciliationRequired,
+  findChainTransactionById,
+  findChainTransactionByIdForUpdate,
+  updateChainTransaction,
+  upsertSyncCheckpoint,
+} from "../db/stores/chain.js";
 import { recordEvent } from "./events.js";
+import { runPurposeFinalizer } from "./transactions.js";
 
 const CHAIN_KNOWN_BOND_STATES = new Set([
   "ACTIVE",
@@ -126,4 +133,122 @@ export async function runReconciliationOnce(
     conflicts,
   );
   return { checked, conflicts, healed };
+}
+
+export interface TxReconciliationReport {
+  readonly checked: number;
+  readonly confirmed: number;
+  readonly failed: number;
+  readonly unknownLeft: number;
+}
+
+/**
+ * Transaction-row reconciliation (Phase 12): resolves SUBMITTED rows
+ * against authoritative chain finality, one row at a time.
+ *
+ * Truth table per row (REAL handle required):
+ * - chain CONFIRMED → DB CONFIRMED + confirmed flag + finalizer (once:
+ *   already-CONFIRMED rows are skipped, never re-finalized).
+ * - chain FAILED → DB FAILED with MIDNIGHT_CONFIRMATION_FAILED.
+ * - chain unreachable/unknown → row untouched (absence of evidence is
+ *   not evidence of failure); reconciliation_required stays set.
+ * - Non-SUBMITTED rows are skipped (advance/confirm own those paths).
+ *
+ * Never manufactures confirmation: CONFIRMED is written only when the
+ * adapter reports chain finality for this row's chain reference.
+ */
+export async function reconcileTransactionRows(
+  handle: ChainHandle,
+  limit = 25,
+): Promise<TxReconciliationReport> {
+  const report: {
+    checked: number;
+    confirmed: number;
+    failed: number;
+    unknownLeft: number;
+  } = { checked: 0, confirmed: 0, failed: 0, unknownLeft: 0 };
+  if (handle.mode !== "REAL" || handle.providers === null) {
+    return { ...report };
+  }
+  const rows: {
+    rows: { id: string; chain_tx_id: string | null; status: string }[];
+  } = await query(
+    `SELECT id, chain_tx_id, status FROM chain_transactions
+     WHERE status = 'SUBMITTED' AND chain_tx_id IS NOT NULL
+       AND dead_letter = FALSE
+     ORDER BY updated_at ASC LIMIT $1`,
+    [limit],
+  );
+  for (const row of rows.rows) {
+    report.checked += 1;
+    let outcome: "CONFIRMED" | "FAILED";
+    try {
+      outcome = await readTransactionStatus(handle, row.chain_tx_id as string);
+    } catch {
+      // Unknown/unreachable: leave the row for the next pass.
+      report.unknownLeft += 1;
+      continue;
+    }
+    await withTransaction(async (client) => {
+      const fresh = await findChainTransactionByIdForUpdate(row.id, client);
+      if (!fresh || fresh.status !== "SUBMITTED") {
+        return;
+      }
+      if (outcome === "CONFIRMED") {
+        await updateChainTransaction(
+          row.id,
+          { status: "CONFIRMED", confirmed: true },
+          client,
+        );
+        // Mirror updates (same finalizers as the confirm path; the
+        // row-lock + SUBMITTED check above makes this exactly-once).
+        const current = await findChainTransactionById(row.id, client);
+        if (current) {
+          await runPurposeFinalizer(current, client);
+        }
+        await recordEvent(
+          {
+            type: "TRANSACTION_STATUS_CHANGED",
+            agentId: fresh.agent_id,
+            bondId: fresh.bond_id,
+            txId: row.id,
+            actor: "system:reconcile",
+            payload: {
+              transactionId: row.id,
+              from: "SUBMITTED",
+              to: "CONFIRMED",
+              chainTxId: row.chain_tx_id,
+            },
+          },
+          client,
+        );
+        report.confirmed += 1;
+      } else {
+        await updateChainTransaction(
+          row.id,
+          { status: "FAILED", lastError: "MIDNIGHT_CONFIRMATION_FAILED" },
+          client,
+        );
+        await recordEvent(
+          {
+            type: "TRANSACTION_STATUS_CHANGED",
+            agentId: fresh.agent_id,
+            bondId: fresh.bond_id,
+            txId: row.id,
+            actor: "system:reconcile",
+            payload: {
+              transactionId: row.id,
+              from: "SUBMITTED",
+              to: "FAILED",
+              chainTxId: row.chain_tx_id,
+            },
+          },
+          client,
+        );
+        report.failed += 1;
+      }
+      await clearReconciliationRequired(row.id, client);
+    });
+  }
+  return { ...report };
 }

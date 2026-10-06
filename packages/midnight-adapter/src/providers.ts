@@ -75,3 +75,73 @@ export function buildProviders(input: ProviderBundleInput): BondProviders {
     midnightProvider: input.walletAndMidnightProvider,
   };
 }
+
+/**
+ * Read-only provider bundle for reconciliation (Phase 12).
+ *
+ * Non-custodial by construction: the wallet/midnight provider is a stub
+ * that throws on ANY submission attempt, and the private-state provider
+ * is an in-memory map that is never seeded with real secrets. Only
+ * public reads (publicDataProvider) and finality watches (watchForTxData)
+ * are exercised through handles built on this bundle.
+ */
+export function buildReadOnlyProviders(
+  config: MidnightConfig,
+  zkAssetsPath: string,
+): BondProviders {
+  const { endpoints } = config;
+  if (endpoints === null) {
+    throw new MidnightError(
+      "MIDNIGHT_CONFIG_INVALID",
+      "Network endpoints required for provider assembly",
+      config.mode,
+      {},
+    );
+  }
+  setNetworkId(endpoints.networkId);
+  const zkConfigProvider = new NodeZkConfigProvider<BondCircuitId>(
+    zkAssetsPath,
+  );
+  const refusingWallet: WalletAndMidnightProvider = {
+    balanceTx: () => {
+      throw new Error("Read-only providers cannot balance transactions");
+    },
+    getCoinPublicKey: () => {
+      throw new Error("Read-only providers hold no keys");
+    },
+    getEncryptionPublicKey: () => {
+      throw new Error("Read-only providers hold no keys");
+    },
+    submitTx: () => {
+      throw new Error("Read-only providers cannot submit transactions");
+    },
+  };
+  // Every private-state operation refuses: read paths never touch it,
+  // and write paths must fail closed before any chain contact.
+  const refusingPrivateState = new Proxy(
+    {} as PrivateStateProvider<BondPrivateStateId, BondPrivateState>,
+    {
+      get(_target, property) {
+        return () => {
+          throw new Error(
+            `Read-only providers do not support ${String(property)}`,
+          );
+        };
+      },
+    },
+  );
+  return {
+    privateStateProvider: refusingPrivateState,
+    publicDataProvider: indexerPublicDataProvider(
+      endpoints.indexerHttp,
+      endpoints.indexerWs,
+    ),
+    zkConfigProvider,
+    proofProvider: httpClientProofProvider(
+      endpoints.proofServerUrl,
+      zkConfigProvider,
+    ),
+    walletProvider: refusingWallet,
+    midnightProvider: refusingWallet,
+  };
+}

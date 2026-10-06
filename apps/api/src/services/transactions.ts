@@ -77,6 +77,17 @@ export function registerPurposeFinalizer(
   finalizers.set(purpose, finalizer);
 }
 
+/** Runs the registered mirror finalizer for a CONFIRMED row, if any. */
+export async function runPurposeFinalizer(
+  row: ChainTxRow,
+  client: PoolClient,
+): Promise<void> {
+  const finalizer = finalizers.get(row.purpose);
+  if (finalizer) {
+    await finalizer(row, client);
+  }
+}
+
 export async function createTransactionIntent(input: {
   readonly operatorId: string;
   readonly purpose: TransactionPurpose;
@@ -194,6 +205,17 @@ export async function advanceTransactionService(
     const row = await findChainTransactionByIdForUpdate(id, client);
     if (!row) {
       throw new ApiError("NOT_FOUND", "Transaction not found");
+    }
+    // Phase 12: CONFIRMED/FAILED are terminal-evidence states, reachable
+    // only through finality (confirmTransactionService) — never through
+    // operator advance. Without this guard, POST /:id/advance {CONFIRMED}
+    // would mark a transaction confirmed with no chain evidence, no
+    // finalizer, and no confirmed_at timestamp.
+    if (to === "CONFIRMED" || to === "FAILED") {
+      throw new ApiError(
+        "INVALID_TRANSACTION_TRANSITION",
+        `Advance cannot reach ${to}; use confirmation with finality evidence`,
+      );
     }
     const next = transitionTransactionStatus(
       row.status as TransactionStatus,
