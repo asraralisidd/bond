@@ -310,6 +310,70 @@ export async function runTransactionWorkerOnce(
 }
 
 /**
+ * Wallet-attended submission record (Phase 11).
+ *
+ * The operator's wallet submits through the connector; the API only
+ * records the resulting chain reference on a PENDING intent owned by the
+ * caller: PENDING → SUBMITTED with chainTxId. Confirmation still comes
+ * exclusively from finality (confirmTransactionService / worker sweeps).
+ * A client claim is never confirmation — chain state stays authoritative.
+ */
+export async function recordWalletSubmission(
+  id: string,
+  chainTxId: string,
+  actor: string,
+  requestId?: string | null,
+): Promise<ChainTxRow> {
+  return withTransaction(async (client) => {
+    const row = await findChainTransactionByIdForUpdate(id, client);
+    if (!row) {
+      throw new ApiError("NOT_FOUND", "Transaction not found");
+    }
+    // Conflicting chain reference always fails closed — even after
+    // submission (a second, different reference means a forked reality).
+    if (row.chain_tx_id && row.chain_tx_id !== chainTxId) {
+      throw new ApiError(
+        "IDEMPOTENCY_CONFLICT",
+        "Transaction already submitted with a different chain reference",
+      );
+    }
+    if (row.status !== "PENDING") {
+      throw new ApiError(
+        "INVALID_TRANSACTION_TRANSITION",
+        `Cannot record submission from ${row.status}`,
+      );
+    }
+    const next = transitionTransactionStatus(
+      row.status as TransactionStatus,
+      "SUBMITTED",
+    );
+    await updateChainTransaction(id, { status: next, chainTxId }, client);
+    await recordEvent(
+      {
+        type: "TRANSACTION_STATUS_CHANGED",
+        agentId: row.agent_id,
+        bondId: row.bond_id,
+        txId: id,
+        actor,
+        requestId,
+        payload: {
+          transactionId: id,
+          from: row.status,
+          to: next,
+          chainTxId,
+        },
+      },
+      client,
+    );
+    const updated = await findChainTransactionById(id, client);
+    if (!updated) {
+      throw new ApiError("NOT_FOUND", "Transaction not found");
+    }
+    return updated;
+  });
+}
+
+/**
  * Explicit confirmation step. SIMULATED: operator-driven dev confirm
  * (auditable, never automatic). REAL: adapter finality check only.
  */

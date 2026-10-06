@@ -1,8 +1,9 @@
 /**
  * Shared UI primitives: layout, navigation shell, badges, state blocks.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
+import { api } from "../api/client.js";
 import { useRoute } from "../app/router.js";
 import { useSession } from "../app/session.js";
 
@@ -197,6 +198,35 @@ export function Layout({ children }: { children: ReactNode }) {
   const route = useRoute();
   const session = useSession();
   const [open, setOpen] = useState(false);
+  const [networkLabel, setNetworkLabel] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .ready()
+      .then((ready) => {
+        if (cancelled) {
+          return;
+        }
+        const mode = ready.checks.midnight.mode;
+        const network = ready.checks.midnight.network;
+        setNetworkLabel(
+          mode === "REAL" && network
+            ? network
+            : mode === "REAL"
+              ? "REAL"
+              : "SIMULATED",
+        );
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setNetworkLabel("SIMULATED");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="shell">
@@ -240,9 +270,13 @@ export function Layout({ children }: { children: ReactNode }) {
         <div className="sidebar-foot">
           <span
             className="net-pill"
-            title="Development backend — simulated execution, not a production network"
+            title={
+              networkLabel && networkLabel !== "SIMULATED"
+                ? "Midnight network configured (connection unverified until exercised)"
+                : "Simulated execution — not a production network"
+            }
           >
-            <span aria-hidden="true">●</span> SIMULATED
+            <span aria-hidden="true">●</span> {networkLabel ?? "SIMULATED"}
           </span>
           {session.token ? (
             <button
@@ -274,7 +308,15 @@ export function Layout({ children }: { children: ReactNode }) {
             Privacy-Preserving Collateral for Autonomous AI Agents
           </span>
           <span className="topbar-right">
-            {session.operatorId ? (
+            {session.walletVerifyingKey ? (
+              <span
+                className="mono"
+                title={`Wallet session (key ${session.walletVerifyingKey})`}
+              >
+                wallet:{session.walletVerifyingKey.slice(0, 8)}…
+                {session.walletNetwork ? ` @ ${session.walletNetwork}` : ""}
+              </span>
+            ) : session.operatorId ? (
               <span className="mono">{session.operatorId}</span>
             ) : (
               <span>Not signed in</span>

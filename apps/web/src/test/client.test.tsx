@@ -168,11 +168,12 @@ describe("shared states", () => {
     cleanup(empty);
   });
 
-  it("login explains the wallet boundary", async () => {
+  it("login offers wallet sign-in alongside development", async () => {
     const container = await render(<LoginPage />);
     await flush();
-    expect(container.innerHTML).toContain("Wallet connection unavailable");
-    expect(container.innerHTML).toContain("Development");
+    expect(container.innerHTML).toContain("Wallet sign-in");
+    expect(container.innerHTML).toContain("Development sign-in");
+    expect(container.innerHTML).toContain("No Midnight wallet detected");
     cleanup(container);
   });
 

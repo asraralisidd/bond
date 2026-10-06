@@ -79,18 +79,21 @@ describe("CORS configuration", () => {
       loadConfig({
         NODE_ENV: "production",
         DATABASE_URL: "postgresql://x",
+        MIDNIGHT_NETWORK: "undeployed",
       } as NodeJS.ProcessEnv),
     ).toThrowError(/CORS_ORIGINS/);
     expect(() =>
       loadConfig({
         NODE_ENV: "production",
         DATABASE_URL: "postgresql://x",
+        MIDNIGHT_NETWORK: "undeployed",
         CORS_ORIGINS: "https://a.example, *",
       } as NodeJS.ProcessEnv),
     ).toThrowError(/\*/);
     const ok = loadConfig({
       NODE_ENV: "production",
       DATABASE_URL: "postgresql://x",
+      MIDNIGHT_NETWORK: "undeployed",
       CORS_ORIGINS: "https://a.example, https://b.example",
     } as NodeJS.ProcessEnv);
     expect(ok.corsOrigins).toEqual(["https://a.example", "https://b.example"]);
@@ -101,10 +104,27 @@ describe("CORS configuration", () => {
       loadConfig({
         NODE_ENV: "production",
         DATABASE_URL: "postgresql://x",
+        MIDNIGHT_NETWORK: "undeployed",
         CORS_ORIGINS: "https://a.example",
         DEV_AUTH_TOKEN: "dev-change-me",
       } as NodeJS.ProcessEnv),
     ).toThrowError(/DEV_AUTH_TOKEN/);
+    // Phase 11: production without an explicit Midnight network fails
+    // closed (empty would silently mean SIMULATED).
+    expect(() =>
+      loadConfig({
+        NODE_ENV: "production",
+        DATABASE_URL: "postgresql://x",
+        CORS_ORIGINS: "https://a.example",
+      } as NodeJS.ProcessEnv),
+    ).toThrowError(/MIDNIGHT_NETWORK/);
+    const explicit = loadConfig({
+      NODE_ENV: "production",
+      DATABASE_URL: "postgresql://x",
+      CORS_ORIGINS: "https://a.example",
+      MIDNIGHT_NETWORK: "undeployed",
+    } as NodeJS.ProcessEnv);
+    expect(explicit.midnightNetwork).toBe("undeployed");
     expect(() =>
       loadConfig({ NODE_ENV: "nope" } as NodeJS.ProcessEnv),
     ).toThrowError(/NODE_ENV/);

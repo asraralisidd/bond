@@ -20,6 +20,7 @@ import {
   confirmTransactionService,
   createTransactionIntent,
   getTransactionService,
+  recordWalletSubmission,
 } from "../../services/transactions.js";
 import { requireTxOwnership } from "../../services/authorization.js";
 
@@ -117,6 +118,42 @@ transactionsRouter.post(
         getRequestId(req),
       );
       res.json({ data: { transactionId: row.id, status: row.status } });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+transactionsRouter.post(
+  "/:id/submitted",
+  requireAuth,
+  rateLimitFor("transaction"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const auth = requireOperator(req);
+      const body = req.body as { chainTxId?: unknown };
+      if (
+        typeof body.chainTxId !== "string" ||
+        body.chainTxId.length === 0 ||
+        body.chainTxId.length > 256
+      ) {
+        throw new ApiError("INVALID_IDENTIFIER", "chainTxId required");
+      }
+      const existing = await getTransactionService(req.params.id as string);
+      await requireTxOwnership(existing, auth.operatorId);
+      const row = await recordWalletSubmission(
+        req.params.id as string,
+        body.chainTxId,
+        `operator:${auth.operatorId}`,
+        getRequestId(req),
+      );
+      res.json({
+        data: {
+          transactionId: row.id,
+          status: row.status,
+          chainTxId: row.chain_tx_id,
+        },
+      });
     } catch (error) {
       next(error);
     }

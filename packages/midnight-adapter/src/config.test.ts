@@ -39,6 +39,17 @@ describe("midnight configuration", () => {
     ).toThrowError(DomainError);
   });
 
+  it("fail-closes mainnet/preview (no verified endpoint preset)", () => {
+    // Phase 11: only undeployed/preprod have verified presets. mainnet
+    // and preview must throw rather than inherit preprod endpoints.
+    expect(() =>
+      resolveMidnightConfig({ MIDNIGHT_NETWORK: "mainnet" }),
+    ).toThrowError(/not enabled/);
+    expect(() =>
+      resolveMidnightConfig({ MIDNIGHT_NETWORK: "preview" }),
+    ).toThrowError(/not enabled/);
+  });
+
   it("documents every env key it reads", () => {
     expect([...MIDNIGHT_ENV_KEYS]).toEqual([
       "MIDNIGHT_NETWORK",

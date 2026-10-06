@@ -21,8 +21,11 @@ import type {
   PublicAgentVerification,
   PublicEligibilityView,
   RiskFlagView,
+  ReadyView,
   SessionResponse,
   TransactionView,
+  WalletChallenge,
+  WalletSignature,
 } from "./types.js";
 
 export class ApiError extends Error {
@@ -201,10 +204,19 @@ function patch<T>(path: string, body?: unknown) {
 
 export const api = {
   health: () => get<HealthView>("/health"),
+  ready: () =>
+    request<ReadyView>("/ready", { method: "GET" }).then((r) => r.data),
   createSession: (devKey: string, externalKey: string) =>
     post<SessionResponse>("/api/v1/auth/session", { devKey, externalKey }),
   signOut: () =>
     post<{ signedOut: boolean }>("/api/v1/auth/sign-out", {}, false, true),
+  requestWalletChallenge: (network?: string) =>
+    post<WalletChallenge>("/api/v1/auth/wallet/challenge", { network }),
+  verifyWalletChallenge: (challengeId: string, signature: WalletSignature) =>
+    post<SessionResponse>("/api/v1/auth/wallet/verify", {
+      challengeId,
+      signature,
+    }),
 
   listAgents: (limit = 50) => get<AgentView[]>(`/api/v1/agents?limit=${limit}`),
   getAgent: (id: string) => get<AgentView>(`/api/v1/agents/${id}`),

@@ -20,6 +20,20 @@ export interface SessionResponse {
   sessionId: string;
 }
 
+export interface WalletChallenge {
+  challengeId: string;
+  nonce: string;
+  network: string;
+  message: string;
+  expiresAt: string;
+}
+
+export interface WalletSignature {
+  data: string;
+  signature: string;
+  verifyingKey: string;
+}
+
 export interface AgentView {
   agentId: string;
   platform: string;
@@ -153,4 +167,21 @@ export interface HealthView {
   status: string;
   version: string;
   service: string;
+}
+
+export interface ReadyView {
+  ready: boolean;
+  checks: {
+    database: { ok: boolean; schema: boolean };
+    midnight: { mode: string; network: string | null };
+    worker: {
+      enabled: boolean;
+      phase: string;
+      running: boolean;
+      draining: boolean;
+      lastPollAt: string | null;
+      activeJobs: number;
+      lastError: string | null;
+    } | null;
+  };
 }

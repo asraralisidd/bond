@@ -1,6 +1,5 @@
 /**
- * Development session issuance. INTERIM: pre-shared dev key only.
- * Wallet-signature login is blocked (Phase 5 Lace shape unresolved).
+ * Session issuance: interim dev key (dev only) + wallet challenge-response.
  */
 import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
@@ -11,6 +10,10 @@ import {
   requireOperator,
 } from "../auth.js";
 import { revokeSession } from "../../db/stores/operators.js";
+import {
+  requestWalletChallenge,
+  verifyWalletChallenge,
+} from "../../services/wallet-auth.js";
 import { ApiError } from "../errors.js";
 
 export const authRouter = Router();
@@ -43,6 +46,41 @@ authRouter.post(
       const auth = requireOperator(req);
       await revokeSession(auth.sessionId);
       res.json({ data: { signedOut: true } });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+// Wallet challenge-response login (production path).
+authRouter.post(
+  "/wallet/challenge",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const body = req.body as { network?: unknown };
+      const challenge = await requestWalletChallenge({
+        network: body.network,
+      });
+      res.status(201).json({ data: challenge });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+authRouter.post(
+  "/wallet/verify",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const body = req.body as {
+        challengeId?: unknown;
+        signature?: unknown;
+      };
+      const session = await verifyWalletChallenge({
+        challengeId: body.challengeId,
+        signature: body.signature,
+      });
+      res.status(201).json(session);
     } catch (error) {
       next(error);
     }

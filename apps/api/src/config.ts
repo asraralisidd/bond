@@ -160,6 +160,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       "DEV_AUTH_TOKEN must not be set in production (development auth is disabled there)",
     );
   }
+  // Phase 11: production MUST declare its Midnight network explicitly.
+  // An empty MIDNIGHT_NETWORK would silently mean SIMULATED — a config
+  // mistake must never make test traffic look like a real deployment.
+  const midnightNetwork = env.MIDNIGHT_NETWORK ?? "";
+  if (nodeEnv === "production" && midnightNetwork.trim() === "") {
+    throw new Error(
+      "MIDNIGHT_NETWORK must be set explicitly in production (empty means SIMULATED)",
+    );
+  }
   const shutdownTimeoutMs = parsePositiveInt("SHUTDOWN_TIMEOUT_MS", env, 10000);
   if (shutdownTimeoutMs <= 0) {
     throw new Error("Invalid SHUTDOWN_TIMEOUT_MS: must be > 0");
@@ -174,7 +183,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     shutdownTimeoutMs,
     databaseUrl: required("DATABASE_URL", env),
     logLevel: parseLogLevel(env),
-    midnightNetwork: env.MIDNIGHT_NETWORK ?? "",
+    midnightNetwork,
     devAuthToken,
     pgConnectTimeoutMs: parsePositiveIntEnv("PG_CONNECT_TIMEOUT_MS", env, 5000),
     pgIdleTimeoutMs: parsePositiveIntEnv("PG_IDLE_TIMEOUT_MS", env, 30000),
