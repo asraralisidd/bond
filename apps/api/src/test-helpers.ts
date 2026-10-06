@@ -40,6 +40,7 @@ export async function useIsolatedDb(name: string): Promise<string> {
 }
 
 const TABLES = [
+  "wallet_challenges",
   "sync_checkpoints",
   "protocol_events",
   "idempotency_keys",

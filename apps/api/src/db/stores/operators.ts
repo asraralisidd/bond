@@ -18,6 +18,9 @@ export interface SessionRow {
   readonly operator_id: string;
   readonly expires_at: string;
   readonly revoked: boolean;
+  readonly auth_method: string;
+  readonly wallet_verifying_key: string | null;
+  readonly challenge_id: string | null;
 }
 
 export function hashToken(token: string): string {
@@ -78,9 +81,9 @@ export async function findSessionByTokenHash(
 ): Promise<SessionRow | null> {
   const result = await query<SessionRow>(
     `SELECT id, operator_id,
-       to_char(expires_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS expires_at,
-       revoked
-     FROM sessions WHERE token_hash = $1`,
+        to_char(expires_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS expires_at,
+        revoked, auth_method, wallet_verifying_key, challenge_id
+      FROM sessions WHERE token_hash = $1`,
     [tokenHash],
     client,
   );

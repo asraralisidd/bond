@@ -39,29 +39,29 @@ private keys or signing secrets.
 
 ## Prerequisites for live execution
 
-| Requirement | Status | Notes |
-|---|---|---|
+| Requirement                            | Status            | Notes                                                                                |
+| -------------------------------------- | ----------------- | ------------------------------------------------------------------------------------ |
 | `MIDNIGHT_NETWORK=undeployed\|preprod` | INTEGRATION-READY | prod requires explicit value; empty fails startup (`apps/api/src/config.ts:166-171`) |
-| `BOND_CONTRACT_ADDRESS` | MISSING | must be set to a deployed contract on the chosen network |
-| `BOND_ZK_ASSETS_PATH` | OPTIONAL | defaults to `contracts/managed/bond`; override if artifacts live elsewhere |
-| Reachable indexer/node/proof-server | MISSING | defaults target localhost undeployed; preprod URLs preset in adapter config |
-| Funded operator wallet (Lace) | MISSING | browser-injected only; backend never holds keys |
-| Deployed BOND contract | MISSING | circuit set unchanged from Phase 4/5; redeploy if network changed |
-| Network match (wallet ↔ server) | INTEGRATION-READY | Login checks `/ready` network vs wallet `getNetworkId()` before signing |
+| `BOND_CONTRACT_ADDRESS`                | MISSING           | must be set to a deployed contract on the chosen network                             |
+| `BOND_ZK_ASSETS_PATH`                  | OPTIONAL          | defaults to `contracts/managed/bond`; override if artifacts live elsewhere           |
+| Reachable indexer/node/proof-server    | MISSING           | defaults target localhost undeployed; preprod URLs preset in adapter config          |
+| Funded operator wallet (Lace)          | MISSING           | browser-injected only; backend never holds keys                                      |
+| Deployed BOND contract                 | MISSING           | circuit set unchanged from Phase 4/5; redeploy if network changed                    |
+| Network match (wallet ↔ server)        | INTEGRATION-READY | Login checks `/ready` network vs wallet `getNetworkId()` before signing              |
 
 Until all "MISSING" items are satisfied, REAL paths remain unexecuted.
 SIMULATED mode continues to work locally for development/tests.
 
 ## Transaction lifecycle (truthful states)
 
-| State | Meaning | How reached |
-|---|---|---|
-| `IDLE` | Intent created, no approval yet | `POST /transactions` |
-| `WALLET_APPROVAL` | Operator approved intent locally | `POST /:id/advance {WALLET_APPROVAL}` |
-| `PENDING` | Wallet approved; ready for submission | `POST /:id/advance {PENDING}` |
-| `SUBMITTED` | Wallet relayed tx; chain ref recorded | `POST /:id/submitted {chainTxId}` |
-| `CONFIRMED` | Chain finality observed (`SucceedEntirely`) | Worker reconciliation OR `POST /:id/confirm` (REAL handle) |
-| `FAILED` | Terminal failure with evidence | Worker reconciliation / confirm path / max-attempts dead-letter |
+| State             | Meaning                                     | How reached                                                     |
+| ----------------- | ------------------------------------------- | --------------------------------------------------------------- |
+| `IDLE`            | Intent created, no approval yet             | `POST /transactions`                                            |
+| `WALLET_APPROVAL` | Operator approved intent locally            | `POST /:id/advance {WALLET_APPROVAL}`                           |
+| `PENDING`         | Wallet approved; ready for submission       | `POST /:id/advance {PENDING}`                                   |
+| `SUBMITTED`       | Wallet relayed tx; chain ref recorded       | `POST /:id/submitted {chainTxId}`                               |
+| `CONFIRMED`       | Chain finality observed (`SucceedEntirely`) | Worker reconciliation OR `POST /:id/confirm` (REAL handle)      |
+| `FAILED`          | Terminal failure with evidence              | Worker reconciliation / confirm path / max-attempts dead-letter |
 
 **Critical invariant:** `CONFIRMED` is written ONLY when
 `readTransactionStatus` (adapter `client.ts:578-609`) reports chain
@@ -100,14 +100,14 @@ Chain state wins. Local projections never manufacture confirmation.
 
 `TxBadge` (`apps/web/src/components/lifecycle.tsx:67-105`) renders:
 
-| Status | Label |
-|---|---|
-| `IDLE` | Draft |
+| Status            | Label                    |
+| ----------------- | ------------------------ |
+| `IDLE`            | Draft                    |
 | `WALLET_APPROVAL` | Awaiting Wallet Approval |
-| `PENDING` | Awaiting Submission |
-| `SUBMITTED` | Submitted |
-| `CONFIRMED` | Confirmed |
-| `FAILED` | Failed |
+| `PENDING`         | Awaiting Submission      |
+| `SUBMITTED`       | Submitted                |
+| `CONFIRMED`       | Confirmed                |
+| `FAILED`          | Failed                   |
 
 SIMULATED receipts carry an explicit `SIMULATED` badge. REAL `SUBMITTED`
 never displays as confirmed. Mode derivation uses `chainTxId` presence
@@ -168,15 +168,15 @@ regressions).
 
 ## Validation results
 
-| Check | Result |
-|---|---|
-| `npm run typecheck` | ✅ pass |
-| `npm run lint` | ✅ pass |
-| `npm run format:check` | ✅ pass |
-| `npm test` | ✅ 55 files / 323 tests |
-| `npm run build` | ✅ pass (run before checkpoint) |
-| `git diff --check` | ✅ clean |
-| Secret sweep | ✅ no keys/seeds/signatures in diff |
+| Check                  | Result                              |
+| ---------------------- | ----------------------------------- |
+| `npm run typecheck`    | ✅ pass                             |
+| `npm run lint`         | ✅ pass                             |
+| `npm run format:check` | ✅ pass                             |
+| `npm test`             | ✅ 55 files / 323 tests             |
+| `npm run build`        | ✅ pass (run before checkpoint)     |
+| `git diff --check`     | ✅ clean                            |
+| Secret sweep           | ✅ no keys/seeds/signatures in diff |
 
 ## Files changed
 

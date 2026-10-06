@@ -4,7 +4,7 @@
  * tests — window.midnight is stubbed or absent.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { availableWallets } from "../wallet/connector.js";
+import { availableWallets, connectWallet } from "../wallet/connector.js";
 import { TxBadge } from "../components/lifecycle.js";
 import { cleanup, flush, render } from "./helpers.js";
 import { LoginPage } from "../pages/Login.js";
@@ -43,6 +43,43 @@ describe("wallet connector surface", () => {
 });
 
 describe("honest transaction labels", () => {
+  it("exposes the shielded coin public key from the connector (no ownership claim)", async () => {
+    const coinKey = "a".repeat(64);
+    (window as unknown as { midnight?: unknown }).midnight = {
+      "com.example.wallet": {
+        rdns: "com.example.wallet",
+        name: "Example Wallet",
+        apiVersion: "4.0.1",
+        connect: async () => ({
+          getUnshieldedAddress: async () => ({
+            unshieldedAddress: "mn_addr_test",
+          }),
+          getShieldedAddresses: async () => ({
+            shieldedAddress: "mn_shield_test",
+            shieldedCoinPublicKey: coinKey,
+            shieldedEncryptionPublicKey: "b".repeat(64),
+          }),
+          signData: async () => {
+            throw new Error("not needed");
+          },
+          submitTransaction: async () => {
+            throw new Error("not needed");
+          },
+          getConfiguration: async () => ({ networkId: "undeployed" }),
+        }),
+      },
+    };
+    const wallet = await connectWallet("com.example.wallet", "undeployed");
+    const addresses = await wallet.getAddresses();
+    // Key material surfaced exactly as the connector returns it.
+    expect(addresses.shieldedCoinPublicKey).toBe(coinKey);
+    // No ownership proof is claimed anywhere in the module surface.
+    expect(Object.keys(addresses).sort()).toEqual([
+      "shieldedAddress",
+      "shieldedCoinPublicKey",
+      "unshieldedAddress",
+    ]);
+  });
   it("never claims success before confirmation", async () => {
     const waiting = await render(
       <TxBadge status="WALLET_APPROVAL" mode="REAL" />,
