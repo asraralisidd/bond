@@ -53,6 +53,20 @@ export function nullifierToBytes32(nullifier: string): Uint8Array {
   return domainIdToBytes32(`bond-nullifier:${nullifier}`);
 }
 
+/**
+ * Eligibility nullifiers use a SEPARATE domain prefix from enforcement
+ * nullifiers: a proof nullifier can never validate as an enforcement
+ * nullifier and vice versa, even if the raw strings collided.
+ */
+export function eligibilityNullifierToBytes32(nullifier: string): Uint8Array {
+  return domainIdToBytes32(`bond-eligibility-nullifier:${nullifier}`);
+}
+
+/** Policy versions hash to fixed-size on-chain identifiers (D1 pattern). */
+export function policyVersionToBytes32(policyVersion: string): Uint8Array {
+  return domainIdToBytes32(`bond-policy:${policyVersion}`);
+}
+
 export function agentStatusToCode(status: ContractAgentStatus): bigint {
   return BigInt(AGENT_STATUS_CODES[status]);
 }

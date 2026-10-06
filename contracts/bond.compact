@@ -60,6 +60,21 @@ export ledger usedNullifiers: Set<Bytes<32>>;
 export ledger agentCount: Counter;
 export ledger bondCount: Counter;
 
+// Eligibility records (Phase 6). Keyed by agent: at most one active
+// eligibility statement per agent; re-proving overwrites. The record
+// reveals ONLY: agent binding, policy hash, purpose code, revoked /
+// consumed flags. Amounts, salts, and secrets never touch the ledger.
+// Purpose codes: 1 = collateral-sufficiency.
+struct EligibilityPublic {
+  policyHash: Bytes<32>;
+  purpose: Uint<8>;
+  revoked: Boolean;
+  consumed: Boolean;
+}
+
+export ledger eligibility: Map<Bytes<32>, EligibilityPublic>;
+export ledger usedEligibilityNullifiers: Set<Bytes<32>>;
+
 // Operator authority opening. Supplied per call, never stored.
 witness operatorSecret(): Bytes<32>;
 // Bond principal openings. Private; proven against the commitment.
@@ -374,6 +389,107 @@ export circuit withdrawBond(bondId: Bytes<32>): [] {
       slashedTotal: bond.slashedTotal,
       status: 6 as Uint<8>,
       withdrawn: true
+    }
+  );
+}
+
+/**
+ * PROVE ELIGIBILITY (Phase 6): "the operator controls an eligible bond
+ * satisfying the configured policy for this agent" — without revealing
+ * the bond amount, salt, or secret.
+ *
+ * Guards: operator authority, agent in BONDED/ACTIVE (clean standing),
+ * bonded value backing (ACTIVE/PARTIALLY_SLASHED), commitment reopening,
+ * sufficiency (amount >= requiredMinimum, proven not stored), fresh
+ * domain-separated nullifier (consumed here). Records ONLY the public
+ * statement: agent binding, policy hash, purpose, flags.
+ * Expiry is enforced adapter-side (no on-chain clock); see docs/phase-6.
+ */
+export circuit proveEligibility(
+  agentId: Bytes<32>,
+  policyHash: Bytes<32>,
+  purpose: Uint<8>,
+  requiredMinimum: Uint<64>,
+  nullifier: Bytes<32>
+): [] {
+  const publicAgentId = disclose(agentId);
+  assert(agents.member(publicAgentId), "unknown agent");
+  const agent = agents.lookup(publicAgentId);
+  requireOperator(agent);
+  const agentStatus = agent.status;
+  if (agentStatus == 2 as Uint<8>) {
+  } else {
+    assert(agentStatus == 3 as Uint<8>, "agent not in service");
+  }
+  assert(agent.hasBond, "eligibility requires a bond");
+  const bond = bonds.lookup(agent.bondId);
+  const bondStatus = bond.status;
+  if (bondStatus == 1 as Uint<8>) {
+  } else {
+    assert(bondStatus == 3 as Uint<8>, "bond not backing");
+  }
+
+  const commitment = hashCommitment(commitmentAmount(), commitmentSalt());
+  assert(commitment == bond.commitment, "commitment mismatch");
+  assert(commitmentAmount() >= requiredMinimum, "insufficient bond");
+
+  const publicNullifier = disclose(nullifier);
+  assert(!usedEligibilityNullifiers.member(publicNullifier), "replayed proof");
+
+  usedEligibilityNullifiers.insert(publicNullifier);
+  eligibility.insert(
+    publicAgentId,
+    EligibilityPublic {
+      policyHash: disclose(policyHash),
+      purpose: disclose(purpose),
+      revoked: false,
+      consumed: false
+    }
+  );
+}
+
+/** Operator revokes a stale eligibility statement (e.g. after flagging). */
+export circuit revokeEligibility(agentId: Bytes<32>): [] {
+  const publicAgentId = disclose(agentId);
+  assert(eligibility.member(publicAgentId), "no eligibility record");
+  const agent = agents.lookup(publicAgentId);
+  requireOperator(agent);
+  const record = eligibility.lookup(publicAgentId);
+  eligibility.insert(
+    publicAgentId,
+    EligibilityPublic {
+      policyHash: record.policyHash,
+      purpose: record.purpose,
+      revoked: true,
+      consumed: record.consumed
+    }
+  );
+}
+
+/**
+ * CONSUME ELIGIBILITY: marks a proof relied-upon (single-use redemption).
+ * Guards: record exists, not revoked, not already consumed, fresh
+ * domain-separated redemption nullifier. Verifiers treat consumed proofs
+ * as spent: "no confirmed violation" is not re-provable from one proof.
+ */
+export circuit consumeEligibility(agentId: Bytes<32>, nullifier: Bytes<32>): [] {
+  const publicAgentId = disclose(agentId);
+  assert(eligibility.member(publicAgentId), "no eligibility record");
+  const agent = agents.lookup(publicAgentId);
+  requireOperator(agent);
+  const record = eligibility.lookup(publicAgentId);
+  assert(!record.revoked, "eligibility revoked");
+  assert(!record.consumed, "eligibility already consumed");
+  const publicNullifier = disclose(nullifier);
+  assert(!usedEligibilityNullifiers.member(publicNullifier), "replayed redemption");
+  usedEligibilityNullifiers.insert(publicNullifier);
+  eligibility.insert(
+    publicAgentId,
+    EligibilityPublic {
+      policyHash: record.policyHash,
+      purpose: record.purpose,
+      revoked: record.revoked,
+      consumed: true
     }
   );
 }

@@ -19,6 +19,7 @@ export * from "./versions.js";
 export * from "./metadata.js";
 export * from "./requests.js";
 export * from "./encoding.js";
+export * from "./eligibility.js";
 export * from "./witnesses.js";
 export * from "./compiled.js";
 export * from "./config.js";

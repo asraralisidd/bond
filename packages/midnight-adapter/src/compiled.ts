@@ -23,7 +23,10 @@ export type BondCircuitId =
   | "reactivateAgent"
   | "processEnforcement"
   | "releaseBond"
-  | "withdrawBond";
+  | "withdrawBond"
+  | "proveEligibility"
+  | "revokeEligibility"
+  | "consumeEligibility";
 
 export function defaultBondZkAssetsPath(): string {
   if (process.env.BOND_ZK_ASSETS_PATH) {

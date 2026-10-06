@@ -26,9 +26,12 @@ import {
   enforcementCircuitArgs,
   lockBondOp,
   processEnforcementOp,
+  readEligibilityRecord,
   readPublicState,
   registerAgentOp,
   releaseBondOp,
+  submitEligibilityProof,
+  submitEligibilityRevocation,
   submitRealCall,
   withdrawBondOp,
 } from "./client.js";
@@ -266,5 +269,35 @@ describe("REAL guards (no network)", () => {
         amountMinorUnits: "10000",
       })[3],
     ).toBe(2n);
+  });
+});
+
+describe("eligibility REAL guards (no network)", () => {
+  it("refuses eligibility submission without REAL providers", async () => {
+    const handle = simHandle();
+    const privateState = {
+      operatorSecret: new Uint8Array(32),
+      commitmentAmount: 10000n,
+      commitmentSalt: new Uint8Array(32),
+    };
+    await expect(
+      submitEligibilityProof(handle, {
+        agentId: "agent-001",
+        policyVersion: "bond-policy-v1",
+        purposeCode: 1,
+        requiredMinimumMinorUnits: "1000",
+        nullifier: "eligibility-proof:agent-001:collateral-sufficiency:n1",
+        privateState,
+      }),
+    ).rejects.toThrowError(MidnightError);
+    await expect(
+      submitEligibilityRevocation(handle, {
+        agentId: "agent-001",
+        privateState,
+      }),
+    ).rejects.toThrowError(MidnightError);
+    await expect(
+      readEligibilityRecord(handle, "agent-001"),
+    ).rejects.toThrowError(MidnightError);
   });
 });

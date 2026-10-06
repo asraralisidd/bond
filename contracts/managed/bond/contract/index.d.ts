@@ -28,6 +28,17 @@ export type ImpureCircuits<PS> = {
   releaseBond(context: __compactRuntime.CircuitContext<PS>, bondId_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
   withdrawBond(context: __compactRuntime.CircuitContext<PS>,
                bondId_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
+  proveEligibility(context: __compactRuntime.CircuitContext<PS>,
+                   agentId_0: Uint8Array,
+                   policyHash_0: Uint8Array,
+                   purpose_0: bigint,
+                   requiredMinimum_0: bigint,
+                   nullifier_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
+  revokeEligibility(context: __compactRuntime.CircuitContext<PS>,
+                    agentId_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
+  consumeEligibility(context: __compactRuntime.CircuitContext<PS>,
+                     agentId_0: Uint8Array,
+                     nullifier_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
 }
 
 export type ProvableCircuits<PS> = {
@@ -52,6 +63,17 @@ export type ProvableCircuits<PS> = {
   releaseBond(context: __compactRuntime.CircuitContext<PS>, bondId_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
   withdrawBond(context: __compactRuntime.CircuitContext<PS>,
                bondId_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
+  proveEligibility(context: __compactRuntime.CircuitContext<PS>,
+                   agentId_0: Uint8Array,
+                   policyHash_0: Uint8Array,
+                   purpose_0: bigint,
+                   requiredMinimum_0: bigint,
+                   nullifier_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
+  revokeEligibility(context: __compactRuntime.CircuitContext<PS>,
+                    agentId_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
+  consumeEligibility(context: __compactRuntime.CircuitContext<PS>,
+                     agentId_0: Uint8Array,
+                     nullifier_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
 }
 
 export type PureCircuits = {
@@ -79,6 +101,17 @@ export type Circuits<PS> = {
   releaseBond(context: __compactRuntime.CircuitContext<PS>, bondId_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
   withdrawBond(context: __compactRuntime.CircuitContext<PS>,
                bondId_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
+  proveEligibility(context: __compactRuntime.CircuitContext<PS>,
+                   agentId_0: Uint8Array,
+                   policyHash_0: Uint8Array,
+                   purpose_0: bigint,
+                   requiredMinimum_0: bigint,
+                   nullifier_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
+  revokeEligibility(context: __compactRuntime.CircuitContext<PS>,
+                    agentId_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
+  consumeEligibility(context: __compactRuntime.CircuitContext<PS>,
+                     agentId_0: Uint8Array,
+                     nullifier_0: Uint8Array): __compactRuntime.CircuitResults<PS, []>;
 }
 
 export type Ledger = {
@@ -124,6 +157,23 @@ export type Ledger = {
   };
   readonly agentCount: bigint;
   readonly bondCount: bigint;
+  eligibility: {
+    isEmpty(): boolean;
+    size(): bigint;
+    member(key_0: Uint8Array): boolean;
+    lookup(key_0: Uint8Array): { policyHash: Uint8Array,
+                                 purpose: bigint,
+                                 revoked: boolean,
+                                 consumed: boolean
+                               };
+    [Symbol.iterator](): Iterator<[Uint8Array, { policyHash: Uint8Array, purpose: bigint, revoked: boolean, consumed: boolean }]>
+  };
+  usedEligibilityNullifiers: {
+    isEmpty(): boolean;
+    size(): bigint;
+    member(elem_0: Uint8Array): boolean;
+    [Symbol.iterator](): Iterator<Uint8Array>
+  };
 }
 
 export type ContractReferenceLocations = any;

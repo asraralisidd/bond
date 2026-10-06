@@ -51,8 +51,10 @@ import {
   amountToUint64,
   bondStatusFromCode,
   domainIdToBytes32,
+  eligibilityNullifierToBytes32,
   enforcementActionToCode,
   nullifierToBytes32,
+  policyVersionToBytes32,
 } from "./encoding.js";
 import type { MidnightConfig } from "./config.js";
 import { MidnightError, toMidnightError } from "./errors.js";
@@ -351,16 +353,7 @@ export function withdrawBondOp(
 }
 
 export interface RealCallInput {
-  readonly circuitId:
-    | "registerAgent"
-    | "lockBond"
-    | "activateAgent"
-    | "flagAgent"
-    | "resolveAgent"
-    | "reactivateAgent"
-    | "processEnforcement"
-    | "releaseBond"
-    | "withdrawBond";
+  readonly circuitId: BondCircuitId;
   readonly args: readonly (Uint8Array | bigint)[];
   readonly privateState: BondPrivateState;
 }
@@ -635,6 +628,132 @@ export function enforcementCircuitArgs(request: {
     enforcementActionToCode(request.action),
     amountToUint64(request.amountMinorUnits),
   ];
+}
+
+/** Builds REAL proveEligibility circuit args from validated inputs. */
+export function eligibilityProofCircuitArgs(input: {
+  readonly agentId: string;
+  readonly policyVersion: string;
+  readonly purposeCode: number;
+  readonly requiredMinimumMinorUnits: string;
+  readonly nullifier: string;
+}): readonly (Uint8Array | bigint)[] {
+  return [
+    domainIdToBytes32(input.agentId),
+    policyVersionToBytes32(input.policyVersion),
+    BigInt(input.purposeCode),
+    amountToUint64(input.requiredMinimumMinorUnits),
+    eligibilityNullifierToBytes32(input.nullifier),
+  ];
+}
+
+export interface EligibilitySubmitInput {
+  readonly agentId: string;
+  readonly policyVersion: string;
+  readonly purposeCode: number;
+  readonly requiredMinimumMinorUnits: string;
+  readonly nullifier: string;
+  readonly privateState: BondPrivateState;
+}
+
+/**
+ * Submits a REAL proveEligibility call. The private amount/salt stay in
+ * the caller's private state; the chain learns only the public statement.
+ */
+export async function submitEligibilityProof(
+  handle: ChainHandle,
+  input: EligibilitySubmitInput,
+): Promise<OperationResult> {
+  return submitRealCall(handle, {
+    circuitId: "proveEligibility",
+    args: eligibilityProofCircuitArgs(input),
+    privateState: input.privateState,
+  });
+}
+
+/** Submits a REAL revokeEligibility call (operator invalidates a statement). */
+export async function submitEligibilityRevocation(
+  handle: ChainHandle,
+  input: { readonly agentId: string; readonly privateState: BondPrivateState },
+): Promise<OperationResult> {
+  return submitRealCall(handle, {
+    circuitId: "revokeEligibility",
+    args: [domainIdToBytes32(input.agentId)],
+    privateState: input.privateState,
+  });
+}
+
+/** Submits a REAL consumeEligibility call (single-use redemption). */
+export async function submitEligibilityRedemption(
+  handle: ChainHandle,
+  input: {
+    readonly agentId: string;
+    readonly redemptionNullifier: string;
+    readonly privateState: BondPrivateState;
+  },
+): Promise<OperationResult> {
+  return submitRealCall(handle, {
+    circuitId: "consumeEligibility",
+    args: [
+      domainIdToBytes32(input.agentId),
+      eligibilityNullifierToBytes32(input.redemptionNullifier),
+    ],
+    privateState: input.privateState,
+  });
+}
+
+export interface OnChainEligibilityRecord {
+  readonly policyHashHex: string;
+  readonly purposeCode: number;
+  readonly revoked: boolean;
+  readonly consumed: boolean;
+}
+
+/**
+ * Reads one eligibility record from REAL chain state. Returns null when
+ * no statement exists (absence ≠ proof — see checkEligibility).
+ * Exposes only public ledger fields; the ledger holds no private values.
+ */
+export async function readEligibilityRecord(
+  handle: ChainHandle,
+  agentId: string,
+): Promise<OnChainEligibilityRecord | null> {
+  if (handle.mode !== "REAL" || handle.providers === null) {
+    throw new MidnightError(
+      "MIDNIGHT_UNAVAILABLE",
+      "Eligibility reads require a REAL handle with providers",
+      handle.mode,
+      {},
+    );
+  }
+  if (handle.contractAddress === null) {
+    throw new MidnightError(
+      "MIDNIGHT_CONFIG_INVALID",
+      "Eligibility reads require a deployed contract address",
+      "REAL",
+      {},
+    );
+  }
+  try {
+    const { contractState } = await getPublicStates(
+      handle.providers.publicDataProvider,
+      handle.contractAddress,
+    );
+    const typed = readLedger(contractState.data);
+    const key = domainIdToBytes32(agentId);
+    if (!typed.eligibility.member(key)) {
+      return null;
+    }
+    const record = typed.eligibility.lookup(key);
+    return {
+      policyHashHex: Buffer.from(record.policyHash).toString("hex"),
+      purposeCode: Number(record.purpose),
+      revoked: record.revoked,
+      consumed: record.consumed,
+    };
+  } catch (error) {
+    throw toMidnightError("read-eligibility", "REAL", error);
+  }
 }
 
 export type { BondCircuitId };
