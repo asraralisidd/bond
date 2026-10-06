@@ -44,6 +44,22 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * User-facing message for API failures. Rate limiting gets a calm,
+ * actionable message with no automatic retry — the caller retries
+ * explicitly (existing Retry buttons), so a 429 never triggers a
+ * client-side retry storm.
+ */
+export function friendlyMessage(error: unknown): string {
+  if (error instanceof ApiError && error.code === "RATE_LIMITED") {
+    return "Too many requests — please wait a moment and try again.";
+  }
+  if (error instanceof ApiError) {
+    return `${error.code}: ${error.message}`;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
 const TOKEN_KEY = "bond.session.token";
 
 export function getApiBase(): string {

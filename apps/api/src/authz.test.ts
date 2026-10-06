@@ -19,7 +19,6 @@ import {
   operatorPrincipal,
   systemPrincipal,
 } from "./http/principals.js";
-import { resetDevAuthGuard } from "./http/middleware/dev-guard.js";
 
 const DEV_KEY = "test-dev-key";
 
@@ -59,7 +58,6 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await resetDb();
-  resetDevAuthGuard();
 });
 
 describe("A. authentication", () => {

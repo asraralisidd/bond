@@ -7,6 +7,7 @@ import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
 import type { RawActivityInput } from "@bond/risk-engine";
 import { requireAuth, requireOperator } from "../auth.js";
+import { rateLimitFor } from "../rate-limit/middleware.js";
 import { getRequestId } from "../request-id.js";
 import { ApiError } from "../errors.js";
 import {
@@ -21,6 +22,7 @@ export const riskRouter = Router();
 riskRouter.post(
   "/analyses",
   requireAuth,
+  rateLimitFor("expensive"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const auth = requireOperator(req);

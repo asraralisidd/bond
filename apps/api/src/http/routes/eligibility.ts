@@ -5,6 +5,7 @@
 import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
 import { requireAuth, requireOperator } from "../auth.js";
+import { rateLimitFor } from "../rate-limit/middleware.js";
 import { ApiError } from "../errors.js";
 import { getRequestId } from "../request-id.js";
 import {
@@ -22,6 +23,7 @@ export const eligibilityRouter = Router();
 eligibilityRouter.post(
   "/proofs",
   requireAuth,
+  rateLimitFor("expensive"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const auth = requireOperator(req);
@@ -96,6 +98,7 @@ eligibilityRouter.get(
 eligibilityRouter.post(
   "/proofs/:id/consume",
   requireAuth,
+  rateLimitFor("expensive"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const auth = requireOperator(req);

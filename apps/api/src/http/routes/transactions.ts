@@ -8,6 +8,7 @@ import type { Request, Response, NextFunction } from "express";
 import type { TransactionPurpose, TransactionStatus } from "@bond/shared-types";
 import { connectMidnight, resolveMidnightConfig } from "@bond/midnight-adapter";
 import { requireAuth, requireOperator } from "../auth.js";
+import { rateLimitFor } from "../rate-limit/middleware.js";
 import { ApiError } from "../errors.js";
 import { getRequestId } from "../request-id.js";
 import {
@@ -27,6 +28,7 @@ export const transactionsRouter = Router();
 transactionsRouter.post(
   "/",
   requireAuth,
+  rateLimitFor("transaction"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const auth = requireOperator(req);
@@ -101,6 +103,7 @@ transactionsRouter.get(
 transactionsRouter.post(
   "/:id/advance",
   requireAuth,
+  rateLimitFor("transaction"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const auth = requireOperator(req);
@@ -123,6 +126,7 @@ transactionsRouter.post(
 transactionsRouter.post(
   "/:id/confirm",
   requireAuth,
+  rateLimitFor("transaction"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const auth = requireOperator(req);

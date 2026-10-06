@@ -184,4 +184,37 @@ describe("shared states", () => {
     expect(window.sessionStorage.getItem("bond.session.expired")).toBeNull();
     cleanup(container);
   });
+
+  it("renders a calm message for 429 without retrying automatically", async () => {
+    const { friendlyMessage, ApiError: ClientApiError } =
+      await import("../api/client.js");
+    expect(
+      friendlyMessage(new ClientApiError("RATE_LIMITED", "x", 429, "r1")),
+    ).toBe("Too many requests — please wait a moment and try again.");
+    expect(
+      friendlyMessage(new ClientApiError("NOT_FOUND", "gone", 404, null)),
+    ).toBe("NOT_FOUND: gone");
+
+    const original = globalThis.fetch;
+    let calls = 0;
+    (globalThis as Record<string, unknown>).fetch = async () => {
+      calls += 1;
+      return {
+        ok: false,
+        status: 429,
+        headers: new Headers({ "x-request-id": "req-rl" }),
+        json: async () => ({ code: "RATE_LIMITED", message: "slow down" }),
+      } as Response;
+    };
+    try {
+      const { api } = await import("../api/client.js");
+      // Single attempt surfaces the backend error; no client retry storm.
+      await expect(api.listAgents()).rejects.toMatchObject({
+        code: "RATE_LIMITED",
+      });
+      expect(calls).toBe(1);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
 });

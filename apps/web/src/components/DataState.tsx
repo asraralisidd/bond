@@ -3,7 +3,7 @@
  * Guarantees every page handles all four states.
  */
 import type { ReactNode } from "react";
-import { ApiError } from "../api/client.js";
+import { ApiError, friendlyMessage } from "../api/client.js";
 import { EmptyState, ErrorState, LoadingState } from "../components/chrome.js";
 
 export function DataState<T>({
@@ -27,7 +27,7 @@ export function DataState<T>({
   if (error) {
     return (
       <ErrorState
-        message={`${error.code}: ${error.message}`}
+        message={friendlyMessage(error)}
         requestId={error.requestId}
         onRetry={onRetry}
       />

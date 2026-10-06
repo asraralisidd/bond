@@ -28,10 +28,8 @@ export function createShutdownController(deps: ShutdownDeps): {
   readonly shutdown: (signal: string) => Promise<void>;
 } {
   let phase: ShutdownPhase = "running";
-  let attempts = 0;
 
   async function shutdown(signal: string): Promise<void> {
-    attempts += 1;
     if (phase === "done") {
       return;
     }

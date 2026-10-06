@@ -7,6 +7,7 @@ import type { Request, Response, NextFunction } from "express";
 import type { BondStatus } from "@bond/shared-types";
 import { toBondPrivateView } from "../dto.js";
 import { requireAuth, requireOperator } from "../auth.js";
+import { rateLimitFor } from "../rate-limit/middleware.js";
 import {
   createBondService,
   getBondService,
@@ -23,6 +24,7 @@ export const bondsRouter = Router();
 bondsRouter.post(
   "/",
   requireAuth,
+  rateLimitFor("mutation"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const auth = requireOperator(req);
@@ -72,6 +74,7 @@ bondsRouter.get(
 bondsRouter.patch(
   "/:id/status",
   requireAuth,
+  rateLimitFor("mutation"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const auth = requireOperator(req);

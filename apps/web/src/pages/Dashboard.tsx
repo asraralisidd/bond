@@ -4,7 +4,7 @@
  * and is never cached as truth — statuses re-resolve on reload.
  */
 import { useEffect, useState } from "react";
-import { api, ApiError, useApi } from "../api/client.js";
+import { api, ApiError, friendlyMessage, useApi } from "../api/client.js";
 import {
   EmptyState,
   ErrorState,
@@ -103,7 +103,7 @@ export function DashboardPage() {
       <>
         <PageHeader title="Dashboard" intro="Protocol posture at a glance." />
         <ErrorState
-          message={`${agents.error.code}: ${agents.error.message}`}
+          message={friendlyMessage(agents.error)}
           requestId={agents.error.requestId}
           onRetry={agents.reload}
         />

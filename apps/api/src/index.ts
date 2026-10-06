@@ -5,6 +5,8 @@ import type { HealthResponse } from "@bond/shared-types";
 import { loadConfig } from "./config.js";
 import type { ApiConfig } from "./config.js";
 import { requestIdMiddleware } from "./http/request-id.js";
+import { globalRateLimit } from "./http/rate-limit/middleware.js";
+import { configureRateLimiting } from "./http/rate-limit/registry.js";
 import { errorHandler } from "./http/errors.js";
 import { notFoundHandler } from "./http/middleware/not-found.js";
 import { timeoutMiddleware } from "./http/middleware/timeout.js";
@@ -74,6 +76,7 @@ function loadConfigSafe(): ApiConfig {
 
 export function createApp(): express.Express {
   const config = loadConfigSafe();
+  configureRateLimiting();
   const app = express();
 
   // 1. Security headers first (before any response is shaped).
@@ -90,7 +93,9 @@ export function createApp(): express.Express {
       crossOriginEmbedderPolicy: false,
     }),
   );
-  // 2. CORS allowlist (explicit origins only — never '*').
+  // 2. Request correlation early so every rejection carries an id.
+  app.use(requestIdMiddleware);
+  // 3. CORS allowlist (explicit origins only — never '*').
   app.use(
     cors({
       origin: (
@@ -109,11 +114,11 @@ export function createApp(): express.Express {
       },
     }),
   );
-  // 3. Bounded JSON bodies.
+  // 4. Bounded JSON bodies.
   app.use(express.json({ limit: config.bodyLimit }));
-  // 4. Request correlation.
-  app.use(requestIdMiddleware);
-  // 5. Bounded HTTP responses (ends the response only — see module docs).
+  // 5. Global IP-baseline rate limiting (body parsed, request id set).
+  app.use(globalRateLimit());
+  // 6. Bounded HTTP responses (ends the response only — see module docs).
   app.use(timeoutMiddleware(config.requestTimeoutMs));
 
   app.get("/health", (_req, res) => {

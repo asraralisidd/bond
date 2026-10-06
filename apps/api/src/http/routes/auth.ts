@@ -10,27 +10,20 @@ import {
   requireAuth,
   requireOperator,
 } from "../auth.js";
-import {
-  devBruteForceGuard,
-  recordDevAuthFailure,
-} from "../middleware/dev-guard.js";
 import { revokeSession } from "../../db/stores/operators.js";
 import { ApiError } from "../errors.js";
 
 export const authRouter = Router();
 
+// NOTE: brute-force protection for this endpoint now comes from the
+// global auth rate-limit policy (IP + credential target), which
+// supersedes the old development-only per-process guard.
 authRouter.post(
   "/session",
-  devBruteForceGuard,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const body = req.body as { devKey?: string; externalKey?: string };
-      try {
-        checkDevKey(body.devKey);
-      } catch (error) {
-        recordDevAuthFailure(req);
-        throw error;
-      }
+      checkDevKey(body.devKey);
       if (!body.externalKey || typeof body.externalKey !== "string") {
         throw new ApiError("INVALID_IDENTIFIER", "externalKey required");
       }

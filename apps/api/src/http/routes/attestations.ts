@@ -8,6 +8,7 @@ import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
 import type { AttestationVerdict } from "@bond/shared-types";
 import { requireAuth, requireOperator } from "../auth.js";
+import { rateLimitFor } from "../rate-limit/middleware.js";
 import { requireAttestor } from "../middleware/attestor-auth.js";
 import { ApiError } from "../errors.js";
 import { getRequestId } from "../request-id.js";
@@ -37,6 +38,7 @@ export const attestorsRouter = Router();
 attestorsRouter.post(
   "/",
   requireAuth,
+  rateLimitFor("mutation"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const auth = requireOperator(req);
@@ -62,6 +64,7 @@ attestorsRouter.post(
 attestationsRouter.post(
   "/",
   requireAuth,
+  rateLimitFor("attestation"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const auth = requireOperator(req);
@@ -125,6 +128,12 @@ attestationsRouter.get(
 attestationsRouter.post(
   "/:id/verdicts",
   requireAttestor,
+  rateLimitFor("attestation", (req) => {
+    const b = req.body as { attestorId?: unknown } | undefined;
+    return typeof b?.attestorId === "string" && b.attestorId !== ""
+      ? `attestor:${b.attestorId}`
+      : null;
+  }),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const body = req.body as {
@@ -160,6 +169,7 @@ attestationsRouter.post(
 attestationsRouter.post(
   "/:id/evaluate",
   requireAuth,
+  rateLimitFor("attestation"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const auth = requireOperator(req);
@@ -184,6 +194,7 @@ attestationsRouter.post(
 attestationsRouter.post(
   "/:id/decision",
   requireAuth,
+  rateLimitFor("attestation"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const auth = requireOperator(req);
@@ -210,6 +221,7 @@ attestationsRouter.post(
 attestationsRouter.post(
   "/:id/enforce",
   requireAuth,
+  rateLimitFor("attestation"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const auth = requireOperator(req);

@@ -6,6 +6,7 @@ import type { Request, Response, NextFunction } from "express";
 import type { AgentStatus } from "@bond/shared-types";
 import { toAgentPrivateView } from "../dto.js";
 import { requireAuth, requireOperator } from "../auth.js";
+import { rateLimitFor } from "../rate-limit/middleware.js";
 import {
   getAgentService,
   listAgentsService,
@@ -23,6 +24,7 @@ export const agentsRouter = Router();
 agentsRouter.post(
   "/",
   requireAuth,
+  rateLimitFor("mutation"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const auth = requireOperator(req);
@@ -92,6 +94,7 @@ agentsRouter.get(
 agentsRouter.patch(
   "/:id/status",
   requireAuth,
+  rateLimitFor("mutation"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const auth = requireOperator(req);
