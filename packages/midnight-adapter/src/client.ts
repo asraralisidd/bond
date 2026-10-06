@@ -59,7 +59,7 @@ import {
 import type { MidnightConfig } from "./config.js";
 import { MidnightError, toMidnightError } from "./errors.js";
 import type { BondProviders, WalletAndMidnightProvider } from "./providers.js";
-import { buildProviders } from "./providers.js";
+import { buildProviders, buildReadOnlyProviders } from "./providers.js";
 import type { PrivateStateProvider } from "@midnight-ntwrk/midnight-js-types";
 import { ledger as readLedger } from "../../../contracts/managed/bond/contract/index.js";
 
@@ -128,6 +128,45 @@ export function connectMidnight(
     contractAddress: config.contractAddress,
     providers,
     zkAssetsPath: zkAssetsPath ?? "",
+  };
+}
+
+/**
+ * Read-only REAL handle for reconciliation (Phase 12).
+ *
+ * No wallet, no keys, no submission capability: built on
+ * buildReadOnlyProviders, whose wallet provider refuses every signing /
+ * submission call. Used by the worker and confirm paths to observe
+ * finality — never to create chain activity.
+ */
+export function connectReadOnly(
+  config: MidnightConfig,
+  zkAssetsPath?: string,
+): ChainHandle {
+  if (config.mode === "UNAVAILABLE") {
+    throw new MidnightError(
+      "MIDNIGHT_UNAVAILABLE",
+      "Midnight integration disabled by configuration",
+      "UNAVAILABLE",
+      {},
+    );
+  }
+  if (config.mode !== "REAL") {
+    throw new MidnightError(
+      "MIDNIGHT_UNAVAILABLE",
+      "Read-only observation requires REAL configuration",
+      config.mode,
+      {},
+    );
+  }
+  const resolvedZkPath = zkAssetsPath ?? "";
+  const providers = buildReadOnlyProviders(config, resolvedZkPath);
+  return {
+    mode: "REAL",
+    config,
+    contractAddress: config.contractAddress,
+    providers,
+    zkAssetsPath: resolvedZkPath,
   };
 }
 
@@ -533,6 +572,38 @@ export async function findBondContract(
     return { mode: "REAL", contractAddress };
   } catch (error) {
     throw toMidnightError("find", "REAL", error);
+  }
+}
+
+/**
+ * Chain authoritative transaction status for reconciliation.
+ *
+ * Read-only: queries finality for an already-submitted chain reference.
+ * CONFIRMED only on SucceedEntirely; anything else observed is FAILED;
+ * unreachable/unknown references throw (caller keeps the row pending —
+ * absence of evidence is not evidence of failure).
+ *
+ * This is the ONLY reconciliation-grade per-tx read: it never submits,
+ * never signs, and never invents state.
+ */
+export async function readTransactionStatus(
+  handle: ChainHandle,
+  chainTxId: string,
+): Promise<"CONFIRMED" | "FAILED"> {
+  if (handle.mode !== "REAL" || handle.providers === null) {
+    throw new MidnightError(
+      "MIDNIGHT_UNAVAILABLE",
+      "Transaction status reads require a REAL handle with providers",
+      handle.mode,
+      {},
+    );
+  }
+  try {
+    const finalized =
+      await handle.providers.publicDataProvider.watchForTxData(chainTxId);
+    return finalized.status === SucceedEntirely ? "CONFIRMED" : "FAILED";
+  } catch (error) {
+    throw toMidnightError("read-tx-status", "REAL", error);
   }
 }
 

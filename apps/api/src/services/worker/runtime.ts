@@ -30,7 +30,10 @@ import {
   confirmTransactionService,
   getPurposeExecutor,
 } from "../transactions.js";
-import { runReconciliationOnce } from "../reconcile.js";
+import {
+  runReconciliationOnce,
+  reconcileTransactionRows,
+} from "../reconcile.js";
 import { systemPrincipal } from "../../http/principals.js";
 import { emptyLogMetadata } from "@bond/shared-types";
 import { DomainError } from "@bond/shared-types";
@@ -392,6 +395,29 @@ export function createWorkerRuntime(deps: RuntimeDeps): WorkerRuntime {
           `Reconciliation failed for ${row.id}`,
           row.id,
         );
+      }
+    }
+    // Phase 12: tx-row finality resolution. Any SUBMITTED row carrying a
+    // chain reference is checked against authoritative finality and
+    // resolved (CONFIRMED + mirrors, or FAILED) — idempotently, and
+    // never by invention. Unknown/unreachable references are left for
+    // the next pass.
+    if (handle && handle.mode === "REAL" && handle.providers !== null) {
+      try {
+        const txReport = await reconcileTransactionRows(
+          handle,
+          deps.config.concurrency,
+        );
+        stats.reconciled += txReport.confirmed + txReport.failed;
+        if (txReport.checked > 0) {
+          workerLog(
+            "reconcile-tx",
+            `Tx rows checked=${txReport.checked} confirmed=${txReport.confirmed} failed=${txReport.failed} unknown=${txReport.unknownLeft}`,
+          );
+        }
+      } catch (error) {
+        stats.lastError = safeFailureMessage(error);
+        workerLogError("reconcile-tx", "Transaction-row reconciliation failed");
       }
     }
   }

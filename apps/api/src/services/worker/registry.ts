@@ -3,7 +3,11 @@
  * the environment on first start. Readiness reports its snapshot;
  * tests construct isolated runtimes directly instead.
  */
-import { connectMidnight, resolveMidnightConfig } from "@bond/midnight-adapter";
+import {
+  connectMidnight,
+  connectReadOnly,
+  resolveMidnightConfig,
+} from "@bond/midnight-adapter";
 import type { ChainHandle } from "@bond/midnight-adapter";
 import { createWorkerRuntime } from "./runtime.js";
 import type { WorkerRuntime } from "./runtime.js";
@@ -25,6 +29,15 @@ export function startWorkerFromEnv(): WorkerRuntime | null {
     resolveHandle: (): ChainHandle | null => {
       try {
         const midnight = resolveMidnightConfig();
+        // Phase 12: non-custodial observation handle. Submission still
+        // requires the operator wallet (never the worker); finality reads
+        // work through the read-only provider bundle, whose wallet stub
+        // refuses every signing/submission call. connectMidnight without
+        // an injected wallet throws by design — that throw is what we
+        // catch below, so try the read-only path first.
+        if (midnight.mode === "REAL") {
+          return connectReadOnly(midnight);
+        }
         return connectMidnight(midnight);
       } catch {
         return null;
