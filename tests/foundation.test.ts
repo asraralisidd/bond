@@ -17,10 +17,10 @@ import {
 } from "@bond/midnight-adapter";
 
 describe("foundation shells", () => {
-  it("midnight-adapter exposes a validated boundary (Phase 4, no chain)", () => {
-    expect(MIDNIGHT_ADAPTER_STATUS).toBe("adapter-boundary-v1");
-    // Boundary proof: pure request construction works; connection still
-    // refuses to fake a chain.
+  it("midnight-adapter runs a real boundary (Phase 5, modes labeled)", () => {
+    expect(MIDNIGHT_ADAPTER_STATUS).toBe("adapter-v2");
+    // Boundary proof: pure request construction works; SIMULATED mode is
+    // the default with no network configured — never a fake chain.
     expect(
       buildRegistrationRequest({ agentId: "agent-001", operatorId: "op-001" }),
     ).toEqual({

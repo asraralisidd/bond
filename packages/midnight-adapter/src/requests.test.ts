@@ -171,14 +171,16 @@ describe("adapter request builders", () => {
     ).toThrowError(DomainError);
   });
 
-  it("exposes versioned contract metadata with honest toolchain status", () => {
+  it("exposes versioned contract metadata with verified toolchain status", () => {
     expect(BOND_CONTRACT_METADATA.contractName).toBe("bond-enforcement");
     expect(BOND_CONTRACT_METADATA.contractVersion).toBe("bond-contract-v1");
-    expect(BOND_CONTRACT_METADATA.toolchain.status).toBe(
-      "unverified-toolchain",
+    expect(BOND_CONTRACT_METADATA.adapterVersion).toBe("adapter-v2");
+    expect(BOND_CONTRACT_METADATA.toolchain.status).toBe("verified-toolchain");
+    expect(BOND_CONTRACT_METADATA.toolchain.toolchain.compactCompiler).toBe(
+      "0.31.1",
     );
-    expect(BOND_CONTRACT_METADATA.toolchain.compactCompiler).toBe(
-      "not-installed",
+    expect(BOND_CONTRACT_METADATA.toolchain.managedDir).toBe(
+      "contracts/managed/bond",
     );
   });
 });

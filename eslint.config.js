@@ -4,7 +4,13 @@ import globals from "globals";
 
 export default tseslint.config(
   {
-    ignores: ["**/dist/**", "**/node_modules/**", "**/coverage/**"],
+    ignores: [
+      "**/dist/**",
+      "**/node_modules/**",
+      "**/coverage/**",
+      // Compiler-generated Compact bindings: owned by the toolchain.
+      "contracts/managed/**",
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

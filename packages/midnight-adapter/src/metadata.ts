@@ -1,25 +1,24 @@
 /**
  * Contract metadata: the adapter's declared target.
  *
- * These are ADAPTER contracts (local boundary types), not generated
- * blockchain types — no compiler output exists yet to generate from.
- * Marked as such so nothing downstream mistakes them for on-chain truth.
+ * Toolchain is now VERIFIED (compiled locally with compiler 0.31.1);
+ * generated bindings are consumed, never pretended.
  */
 import {
   ADAPTER_VERSION,
   TARGET_CONTRACT_VERSION,
   TARGET_POLICY_VERSION,
+  VERIFIED_TOOLCHAIN,
 } from "./versions.js";
+import type { VerifiedToolchain } from "./versions.js";
 
-export type ToolchainStatus = "unverified-toolchain";
+export type ToolchainStatus = "verified-toolchain";
 
 export interface ToolchainInfo {
   readonly status: ToolchainStatus;
-  /** Latest versions OBSERVED (registry), explicitly not integrated. */
-  readonly observedMidnightJsContracts: string;
-  readonly observedProofProvider: string;
-  readonly observedAt: string;
-  readonly compactCompiler: "not-installed";
+  readonly toolchain: VerifiedToolchain;
+  /** `contracts/managed/bond` output of the verified compile. */
+  readonly managedDir: "contracts/managed/bond";
 }
 
 export interface ContractMetadata {
@@ -31,11 +30,9 @@ export interface ContractMetadata {
 }
 
 export const TOOLCHAIN_INFO: ToolchainInfo = {
-  status: "unverified-toolchain",
-  observedMidnightJsContracts: "4.1.1",
-  observedProofProvider: "4.1.1",
-  observedAt: "2026-10-06",
-  compactCompiler: "not-installed",
+  status: "verified-toolchain",
+  toolchain: VERIFIED_TOOLCHAIN,
+  managedDir: "contracts/managed/bond",
 };
 
 export const BOND_CONTRACT_METADATA: ContractMetadata = {

@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { connectMidnight } from "./index.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -21,36 +20,55 @@ function adapterSources(): string {
 }
 
 describe("adapter boundary (architectural)", () => {
-  it("contains no chain, wallet, signing, or network behavior", () => {
+  it("keeps advisory layers out of the chain seam", () => {
     const code = adapterSources();
+    // Risk Engine and Attestor must never reach the chain directly:
+    // all chain access flows through validated BOND requests.
+    for (const mod of ["@bond/risk-engine", "@bond/attestor"]) {
+      expect(code.includes(mod), `must not import ${mod}`).toBe(false);
+    }
+    // No key creation, no raw signing, no invented network calls.
     for (const id of [
-      "wallet",
-      "Wallet",
-      "signTransaction",
-      "submitTransaction",
+      "sampleSigningKey",
+      "generateKey",
       "privateKey",
-      "fetch(",
-      "WebSocket",
-      "midnight-js",
+      "mnemonic",
+      "XMLHttpRequest",
     ]) {
       expect(code.includes(id), `must not reference ${id}`).toBe(false);
     }
-    // No invented generated-module surface.
-    expect(code.includes("generated")).toBe(false);
   });
 
-  it("declares only domain and contract dependencies", () => {
+  it("uses only verified Midnight, domain, and contract dependencies", () => {
     const pkg = JSON.parse(
       readFileSync(join(HERE, "..", "package.json"), "utf8"),
     ) as { dependencies?: Record<string, string> };
-    expect(Object.keys(pkg.dependencies ?? {}).sort()).toEqual(
-      ["@bond/contract", "@bond/shared-types"].sort(),
+    const deps = Object.keys(pkg.dependencies ?? {}).sort();
+    expect(deps).toEqual(
+      [
+        "@bond/contract",
+        "@bond/shared-types",
+        "@midnight-ntwrk/compact-js",
+        "@midnight-ntwrk/compact-runtime",
+        "@midnight-ntwrk/midnight-js-contracts",
+        "@midnight-ntwrk/midnight-js-http-client-proof-provider",
+        "@midnight-ntwrk/midnight-js-indexer-public-data-provider",
+        "@midnight-ntwrk/midnight-js-network-id",
+        "@midnight-ntwrk/midnight-js-node-zk-config-provider",
+        "@midnight-ntwrk/midnight-js-protocol",
+        "@midnight-ntwrk/midnight-js-types",
+        "@midnight-ntwrk/midnight-js-utils",
+      ].sort(),
     );
   });
 
-  it("never fakes a chain connection", () => {
-    expect(() => connectMidnight()).toThrowError(
-      /Phase 5|compiled contract artifacts/,
-    );
+  it("labels every receipt with an honest mode", () => {
+    const code = adapterSources();
+    // Note: the scanner strips string literals, so this asserts on
+    // identifiers: sim* helpers for labeled simulation, SucceedEntirely
+    // as the only REAL confirmation gate.
+    expect(code.includes("simSuccess")).toBe(true);
+    expect(code.includes("simFailure")).toBe(true);
+    expect(code.includes("SucceedEntirely")).toBe(true);
   });
 });

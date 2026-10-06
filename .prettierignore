@@ -5,3 +5,5 @@ coverage
 .env
 .env.*.local
 *.tsbuildinfo
+# Compiler-generated Compact bindings: owned by the toolchain.
+contracts/managed

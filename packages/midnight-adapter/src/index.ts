@@ -1,24 +1,27 @@
 /**
- * @bond/midnight-adapter — contract boundary seam (Phase 4).
+ * @bond/midnight-adapter — Midnight integration seam (Phase 5).
  *
- * Sole TypeScript seam between the application and Midnight. In Phase 4
- * it carries validated, contract-compatible request shapes plus versioned
- * contract metadata — NO generated modules (no compiler available yet),
- * NO submission, NO signing, NO network. Real chain wiring is Phase 5.
+ * SOLE chain integration point for BOND. Carries:
+ * - validated BOND-level request builders (requests.ts),
+ * - domain ↔ Compact encoding (encoding.ts),
+ * - witness callbacks + private-state shape (witnesses.ts),
+ * - compiled-contract wiring from VERIFIED artifacts (compiled.ts),
+ * - environment configuration with explicit modes (config.ts),
+ * - verified provider assembly (providers.ts),
+ * - SIMULATED execution + REAL submission/confirmation paths (client.ts).
+ *
+ * Modes: SIMULATED (labeled in-memory rules), REAL (live submission),
+ * UNAVAILABLE (refuse). Nothing here fakes chain activity.
  */
-export const MIDNIGHT_ADAPTER_STATUS = "adapter-boundary-v1" as const;
+export const MIDNIGHT_ADAPTER_STATUS = "adapter-v2" as const;
 
 export * from "./versions.js";
 export * from "./metadata.js";
 export * from "./requests.js";
-
-/**
- * Chain connection. Still a stub: establishing sessions, wallets, and
- * deployment uses generated modules + compiled artifacts that do not
- * exist yet (see docs/phase-4). Always throws — never fake a connection.
- */
-export function connectMidnight(): never {
-  throw new Error(
-    "@bond/midnight-adapter: on-chain connection requires compiled contract artifacts (Phase 5).",
-  );
-}
+export * from "./encoding.js";
+export * from "./witnesses.js";
+export * from "./compiled.js";
+export * from "./config.js";
+export * from "./providers.js";
+export * from "./errors.js";
+export * from "./client.js";

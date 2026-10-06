@@ -1,0 +1,379 @@
+// BOND — Privacy-Preserving Collateral & Automated Slashing for AI Agents.
+//
+// On-chain enforcement authority. Mirrors packages/contract (normative
+// TypeScript rule model) 1:1 except where Compact's execution model
+// requires an explicit, documented adaptation (see BOND_DECISIONS below).
+//
+// Privacy model (enforced by construction):
+// - Ledger state is PUBLIC by Compact semantics. The bond principal is
+//   NEVER stored: only its commitment hash. Amounts travel as witnesses
+//   (private) and are proven in-circuit against the commitment.
+// - Publicly stored: status codes, slash counts, cumulative PUBLIC slashed
+//   totals (enforcement transparency), nullifiers, commitments.
+// - Operator authority is proven by opening a stored operator commitment;
+//   the secret itself never leaves the witness.
+//
+// BOND_DECISIONS (Compact adaptations of the Phase 4 model):
+// - D1 IDs: domain string IDs enter as Bytes<32> (SHA-256 of the domain
+//   ID, derived off-chain in the adapter). Compact Map keys must be
+//   fixed-size.
+// - D2 Statuses are Uint<8> codes (agent 1..6, bond 1..7). Mapping is
+//   defined in docs/phase-5 and mirrored in the adapter.
+// - D3 Full-vs-partial slash is PROVEN, not declared: witnesses reopen
+//   the commitment amount in-circuit; partial requires
+//   slashedTotal + amount < commitment, full requires equality.
+// - D4 Decision expiry is enforced OFF-CHAIN by the adapter (refuses to
+//   submit expired decisions). Compact circuits have no wall-clock;
+//   ledger-time gating is unresolved (see docs/phase-5).
+// - D5 Quorum validity is enforced OFF-CHAIN by the adapter against the
+//   Phase 3 Attestation object. On-chain, the operator-submitted decision
+//   is bound by nullifier single-use + subject equality + state guards.
+//   On-chain quorum-signature verification is future work.
+
+pragma language_version >= 0.23;
+
+import CompactStandardLibrary;
+
+// Agent lifecycle codes: 1 REGISTERED, 2 BONDED, 3 ACTIVE,
+// 4 FLAGGED, 5 SLASHED, 6 RESOLVED.
+struct AgentPublic {
+  operatorCommitment: Bytes<32>;
+  bondId: Bytes<32>;
+  hasBond: Boolean;
+  status: Uint<8>;
+  slashCount: Uint<32>;
+}
+
+// Bond lifecycle codes: 1 ACTIVE, 2 LOCKED, 3 PARTIALLY_SLASHED,
+// 4 FULLY_SLASHED, 5 WITHDRAWABLE, 6 WITHDRAWN, 7 CANCELLED.
+struct BondPublic {
+  agentId: Bytes<32>;
+  commitment: Bytes<32>;
+  slashedTotal: Uint<64>;
+  status: Uint<8>;
+  withdrawn: Boolean;
+}
+
+export ledger agents: Map<Bytes<32>, AgentPublic>;
+export ledger bonds: Map<Bytes<32>, BondPublic>;
+export ledger usedNullifiers: Set<Bytes<32>>;
+export ledger agentCount: Counter;
+export ledger bondCount: Counter;
+
+// Operator authority opening. Supplied per call, never stored.
+witness operatorSecret(): Bytes<32>;
+// Bond principal openings. Private; proven against the commitment.
+witness commitmentAmount(): Uint<64>;
+witness commitmentSalt(): Bytes<32>;
+
+pure circuit hashOperator(secret: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([
+    pad(32, "BOND_OPERATOR_V1"),
+    secret
+  ]);
+}
+
+pure circuit hashCommitment(amount: Uint<64>, salt: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([
+    pad(32, "BOND_COMMIT_V1"),
+    amount as Bytes<32>,
+    salt
+  ]);
+}
+
+circuit requireOperator(record: AgentPublic): [] {
+  assert(hashOperator(operatorSecret()) == record.operatorCommitment, "unauthorized operator");
+}
+
+/**
+ * REGISTER AGENT: establish identity + operator. Rejects duplicates.
+ * The operator commitment is derived IN-CIRCUIT from the witness secret,
+ * so no off-chain hash computation is ever required.
+ */
+export circuit registerAgent(agentId: Bytes<32>): [] {
+  const publicAgentId = disclose(agentId);
+  assert(!agents.member(publicAgentId), "duplicate agent");
+  const operatorCommitment = hashOperator(operatorSecret());
+  agents.insert(
+    publicAgentId,
+    AgentPublic {
+      operatorCommitment: disclose(operatorCommitment),
+      bondId: pad(32, ""),
+      hasBond: false,
+      status: 1 as Uint<8>,
+      slashCount: 0 as Uint<32>
+    }
+  );
+  agentCount.increment(1);
+}
+
+/**
+ * CREATE/LOCK BOND: confirmed lock only. The principal stays private;
+ * only its commitment is stored. No token movement in this circuit.
+ */
+export circuit lockBond(bondId: Bytes<32>, agentId: Bytes<32>): [] {
+  const publicAgentId = disclose(agentId);
+  assert(agents.member(publicAgentId), "unknown agent");
+  const agent = agents.lookup(publicAgentId);
+  assert(agent.status == 1 as Uint<8>, "agent not registered");
+  assert(!agent.hasBond, "agent already bonded");
+
+  const publicBondId = disclose(bondId);
+  assert(!bonds.member(publicBondId), "duplicate bond");
+
+  const amount = commitmentAmount();
+  const salt = commitmentSalt();
+  assert(amount > 0 as Uint<64>, "invalid commitment");
+  const commitment = hashCommitment(amount, salt);
+
+  bonds.insert(
+    publicBondId,
+    BondPublic {
+      agentId: publicAgentId,
+      commitment: disclose(commitment),
+      slashedTotal: 0 as Uint<64>,
+      status: 1 as Uint<8>,
+      withdrawn: false
+    }
+  );
+  agents.insert(
+    publicAgentId,
+    AgentPublic {
+      operatorCommitment: agent.operatorCommitment,
+      bondId: publicBondId,
+      hasBond: true,
+      status: 2 as Uint<8>,
+      slashCount: agent.slashCount
+    }
+  );
+  bondCount.increment(1);
+}
+
+/** BONDED -> ACTIVE (operator marks in service). */
+export circuit activateAgent(agentId: Bytes<32>): [] {
+  const publicAgentId = disclose(agentId);
+  assert(agents.member(publicAgentId), "unknown agent");
+  const agent = agents.lookup(publicAgentId);
+  requireOperator(agent);
+  assert(agent.status == 2 as Uint<8>, "agent not bonded");
+  agents.insert(
+    publicAgentId,
+    AgentPublic {
+      operatorCommitment: agent.operatorCommitment,
+      bondId: agent.bondId,
+      hasBond: agent.hasBond,
+      status: 3 as Uint<8>,
+      slashCount: agent.slashCount
+    }
+  );
+}
+
+/** BONDED/ACTIVE -> FLAGGED (operator acknowledges review). */
+export circuit flagAgent(agentId: Bytes<32>): [] {
+  const publicAgentId = disclose(agentId);
+  assert(agents.member(publicAgentId), "unknown agent");
+  const agent = agents.lookup(publicAgentId);
+  requireOperator(agent);
+  const status = agent.status;
+  if (status == 2 as Uint<8>) {
+  } else {
+    assert(status == 3 as Uint<8>, "agent not flaggable");
+  }
+  agents.insert(
+    publicAgentId,
+    AgentPublic {
+      operatorCommitment: agent.operatorCommitment,
+      bondId: agent.bondId,
+      hasBond: agent.hasBond,
+      status: 4 as Uint<8>,
+      slashCount: agent.slashCount
+    }
+  );
+}
+
+/** FLAGGED/SLASHED -> RESOLVED (operator closes the incident). */
+export circuit resolveAgent(agentId: Bytes<32>): [] {
+  const publicAgentId = disclose(agentId);
+  assert(agents.member(publicAgentId), "unknown agent");
+  const agent = agents.lookup(publicAgentId);
+  requireOperator(agent);
+  const status = agent.status;
+  if (status == 4 as Uint<8>) {
+  } else {
+    assert(status == 5 as Uint<8>, "agent not resolvable");
+  }
+  agents.insert(
+    publicAgentId,
+    AgentPublic {
+      operatorCommitment: agent.operatorCommitment,
+      bondId: agent.bondId,
+      hasBond: agent.hasBond,
+      status: 6 as Uint<8>,
+      slashCount: agent.slashCount
+    }
+  );
+}
+
+/** RESOLVED -> ACTIVE (operator returns to service; bond must hold value). */
+export circuit reactivateAgent(agentId: Bytes<32>): [] {
+  const publicAgentId = disclose(agentId);
+  assert(agents.member(publicAgentId), "unknown agent");
+  const agent = agents.lookup(publicAgentId);
+  requireOperator(agent);
+  assert(agent.status == 6 as Uint<8>, "agent not resolved");
+  assert(agent.hasBond, "reactivation requires a bond");
+  const bond = bonds.lookup(agent.bondId);
+  const bondStatus = bond.status;
+  if (bondStatus == 1 as Uint<8>) {
+  } else {
+    assert(bondStatus == 3 as Uint<8>, "bond cannot back reactivation");
+  }
+  agents.insert(
+    publicAgentId,
+    AgentPublic {
+      operatorCommitment: agent.operatorCommitment,
+      bondId: agent.bondId,
+      hasBond: agent.hasBond,
+      status: 3 as Uint<8>,
+      slashCount: agent.slashCount
+    }
+  );
+}
+
+/**
+ * PROCESS ENFORCEMENT: the only path that moves bonded value.
+ * Guards: operator authority, FLAGGED agent, slashable bond, subject
+ * binding (bond.agentId == agent), fresh nullifier (consumed here),
+ * commitment reopening, amount validity, proven full/partial outcome.
+ * action: 1 = partial (newTotal < commitment), 2 = full (equality).
+ */
+export circuit processEnforcement(
+  agentId: Bytes<32>,
+  bondId: Bytes<32>,
+  nullifier: Bytes<32>,
+  action: Uint<8>,
+  amount: Uint<64>
+): [] {
+  const publicAgentId = disclose(agentId);
+  const publicBondId = disclose(bondId);
+  assert(agents.member(publicAgentId), "unknown agent");
+  assert(bonds.member(publicBondId), "unknown bond");
+  const agent = agents.lookup(publicAgentId);
+  const bond = bonds.lookup(publicBondId);
+  requireOperator(agent);
+  assert(agent.status == 4 as Uint<8>, "agent not flagged");
+  assert(bond.agentId == publicAgentId, "subject mismatch");
+  const bondStatus = bond.status;
+  if (bondStatus == 1 as Uint<8>) {
+  } else {
+    if (bondStatus == 2 as Uint<8>) {
+    } else {
+      assert(bondStatus == 3 as Uint<8>, "bond not slashable");
+    }
+  }
+
+  const publicNullifier = disclose(nullifier);
+  assert(!usedNullifiers.member(publicNullifier), "replayed enforcement");
+
+  const commitment = hashCommitment(commitmentAmount(), commitmentSalt());
+  assert(commitment == bond.commitment, "commitment mismatch");
+  const principal = commitmentAmount();
+  assert(amount > 0 as Uint<64>, "invalid slash amount");
+  const newTotal = (bond.slashedTotal + amount) as Uint<64>;
+
+  if (action == 1 as Uint<8>) {
+    assert(newTotal < principal, "partial exceeds remainder");
+  } else {
+    assert(action == 2 as Uint<8>, "unknown enforcement action");
+    assert(newTotal == principal, "full slash must exhaust principal");
+  }
+
+  usedNullifiers.insert(publicNullifier);
+  // Branch on the DISCLOSED action (public protocol data), never on
+  // witness-derived comparisons: storing different constants per branch
+  // of a private value would leak it. The asserts below prove the
+  // witnesses satisfy the declared action.
+  const publicAction = disclose(action);
+  if (publicAction == 1 as Uint<8>) {
+    assert(newTotal < principal, "partial exceeds remainder");
+    bonds.insert(
+      publicBondId,
+      BondPublic {
+        agentId: bond.agentId,
+        commitment: bond.commitment,
+        slashedTotal: disclose(newTotal),
+        status: 3 as Uint<8>,
+        withdrawn: bond.withdrawn
+      }
+    );
+  } else {
+    assert(publicAction == 2 as Uint<8>, "unknown enforcement action");
+    assert(newTotal == principal, "full slash must exhaust principal");
+    bonds.insert(
+      publicBondId,
+      BondPublic {
+        agentId: bond.agentId,
+        commitment: bond.commitment,
+        slashedTotal: disclose(newTotal),
+        status: 4 as Uint<8>,
+        withdrawn: bond.withdrawn
+      }
+    );
+  }
+  agents.insert(
+    publicAgentId,
+    AgentPublic {
+      operatorCommitment: agent.operatorCommitment,
+      bondId: agent.bondId,
+      hasBond: agent.hasBond,
+      status: 5 as Uint<8>,
+      slashCount: (agent.slashCount + (1 as Uint<32>)) as Uint<32>
+    }
+  );
+}
+
+/** ACTIVE/PARTIALLY_SLASHED -> WITHDRAWABLE (never while flagged). */
+export circuit releaseBond(bondId: Bytes<32>): [] {
+  const publicBondId = disclose(bondId);
+  assert(bonds.member(publicBondId), "unknown bond");
+  const bond = bonds.lookup(publicBondId);
+  const agent = agents.lookup(bond.agentId);
+  requireOperator(agent);
+  const bondStatus = bond.status;
+  if (bondStatus == 1 as Uint<8>) {
+  } else {
+    assert(bondStatus == 3 as Uint<8>, "bond not releasable");
+  }
+  assert(agent.status != 4 as Uint<8>, "agent flagged");
+  bonds.insert(
+    publicBondId,
+    BondPublic {
+      agentId: bond.agentId,
+      commitment: bond.commitment,
+      slashedTotal: bond.slashedTotal,
+      status: 5 as Uint<8>,
+      withdrawn: bond.withdrawn
+    }
+  );
+}
+
+/** WITHDRAWABLE -> WITHDRAWN, exactly once. */
+export circuit withdrawBond(bondId: Bytes<32>): [] {
+  const publicBondId = disclose(bondId);
+  assert(bonds.member(publicBondId), "unknown bond");
+  const bond = bonds.lookup(publicBondId);
+  const agent = agents.lookup(bond.agentId);
+  requireOperator(agent);
+  assert(bond.status == 5 as Uint<8>, "bond not withdrawable");
+  assert(!bond.withdrawn, "already withdrawn");
+  bonds.insert(
+    publicBondId,
+    BondPublic {
+      agentId: bond.agentId,
+      commitment: bond.commitment,
+      slashedTotal: bond.slashedTotal,
+      status: 6 as Uint<8>,
+      withdrawn: true
+    }
+  );
+}
