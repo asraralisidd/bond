@@ -85,7 +85,10 @@ export function getLastRequestId(): string | null {
 
 async function request<T>(
   path: string,
-  init: RequestInit & { idempotent?: boolean } = {},
+  init: RequestInit & {
+    idempotent?: boolean;
+    skipUnauthorizedHook?: boolean;
+  } = {},
 ): Promise<{ data: T; requestId: string | null }> {
   const token = getToken();
   const headers: Record<string, string> = {
@@ -119,24 +122,57 @@ async function request<T>(
   }
   if (!res.ok) {
     const err = body as Partial<ApiErrorBody> | null;
-    throw new ApiError(
+    const apiError = new ApiError(
       typeof err?.code === "string" ? err.code : "UNKNOWN_ERROR",
       typeof err?.message === "string" ? err.message : `HTTP ${res.status}`,
       res.status,
       requestId,
     );
+    if (res.status === 401 && !init.skipUnauthorizedHook) {
+      notifyUnauthorized(apiError);
+    }
+    throw apiError;
   }
   return { data: (body as ApiEnvelope<T>).data, requestId };
+}
+
+type UnauthorizedHandler = (error: ApiError) => void;
+
+let unauthorizedHandler: UnauthorizedHandler | null = null;
+
+/**
+ * Registers the session-expired handler (wired once by SessionProvider).
+ * Fires on any 401 so stale tokens clear immediately and the UI
+ * returns to login with a safe message.
+ */
+export function setUnauthorizedHandler(
+  handler: UnauthorizedHandler | null,
+): void {
+  unauthorizedHandler = handler;
+}
+
+function notifyUnauthorized(error: ApiError): void {
+  try {
+    unauthorizedHandler?.(error);
+  } catch {
+    // handler must never break the error path
+  }
 }
 
 const get = <T>(path: string) =>
   request<T>(path, { method: "GET" }).then((r) => r.data);
 
-function post<T>(path: string, body?: unknown, idempotent = false) {
+function post<T>(
+  path: string,
+  body?: unknown,
+  idempotent = false,
+  skipUnauthorizedHook = false,
+) {
   return request<T>(path, {
     method: "POST",
     body: body === undefined ? undefined : JSON.stringify(body),
     idempotent,
+    skipUnauthorizedHook,
   }).then((r) => r.data);
 }
 
@@ -151,6 +187,8 @@ export const api = {
   health: () => get<HealthView>("/health"),
   createSession: (devKey: string, externalKey: string) =>
     post<SessionResponse>("/api/v1/auth/session", { devKey, externalKey }),
+  signOut: () =>
+    post<{ signedOut: boolean }>("/api/v1/auth/sign-out", {}, false, true),
 
   listAgents: (limit = 50) => get<AgentView[]>(`/api/v1/agents?limit=${limit}`),
   getAgent: (id: string) => get<AgentView>(`/api/v1/agents/${id}`),

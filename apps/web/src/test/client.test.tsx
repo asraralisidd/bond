@@ -45,6 +45,36 @@ describe("api client", () => {
     }
   });
 
+  it("fires the unauthorized handler on 401 only", async () => {
+    const { setUnauthorizedHandler } = await import("../api/client.js");
+    const seen: string[] = [];
+    setUnauthorizedHandler((err) => {
+      seen.push(err.code);
+    });
+    const original = globalThis.fetch;
+    const fail = (status: number) =>
+      (async () =>
+        ({
+          ok: false,
+          status,
+          headers: new Headers({}),
+          json: async () => ({ code: "X", message: "y" }),
+        }) as Response) as typeof fetch;
+    try {
+      globalThis.fetch = fail(401);
+      const { api } = await import("../api/client.js");
+      await expect(api.listAgents()).rejects.toThrowError();
+      expect(seen).toEqual(["X"]);
+
+      globalThis.fetch = fail(403);
+      await expect(api.listAgents()).rejects.toThrowError();
+      expect(seen).toEqual(["X"]);
+    } finally {
+      globalThis.fetch = original;
+      setUnauthorizedHandler(null);
+    }
+  });
+
   it("sends Idempotency-Key on mutating calls", async () => {
     const restore = stubFetch(() => ({ data: { ok: true } }));
     const { api } = await import("../api/client.js");
@@ -143,6 +173,15 @@ describe("shared states", () => {
     await flush();
     expect(container.innerHTML).toContain("Wallet connection unavailable");
     expect(container.innerHTML).toContain("Development");
+    cleanup(container);
+  });
+
+  it("login shows the session-expired notice once", async () => {
+    window.sessionStorage.setItem("bond.session.expired", "1");
+    const container = await render(<LoginPage />);
+    await flush();
+    expect(container.innerHTML).toContain("expired");
+    expect(window.sessionStorage.getItem("bond.session.expired")).toBeNull();
     cleanup(container);
   });
 });

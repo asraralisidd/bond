@@ -27,16 +27,26 @@ describe("transactions API + worker", () => {
 
   it("creates intents idempotently and advances the lifecycle", async () => {
     const { app, token } = await setup();
+    const agent = await request(app)
+      .post("/api/v1/agents")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        platform: "custom",
+        agentType: "custom",
+        capabilities: [],
+        externalRef: "tx-owner-agent",
+      });
+    const agentId = agent.body.data.agentId as string;
     const created = await request(app)
       .post("/api/v1/transactions")
       .set("Authorization", `Bearer ${token}`)
-      .send({ purpose: "FUND_BOND", idempotencyKey: "tx-key-1" });
+      .send({ purpose: "FUND_BOND", agentId, idempotencyKey: "tx-key-1" });
     expect(created.status).toBe(201);
     expect(created.body.data.status).toBe("IDLE");
     const replay = await request(app)
       .post("/api/v1/transactions")
       .set("Authorization", `Bearer ${token}`)
-      .send({ purpose: "FUND_BOND", idempotencyKey: "tx-key-1" });
+      .send({ purpose: "FUND_BOND", agentId, idempotencyKey: "tx-key-1" });
     expect(replay.status).toBe(200);
     expect(replay.body.data.transactionId).toBe(
       created.body.data.transactionId,

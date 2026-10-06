@@ -20,6 +20,7 @@ import {
   createTransactionIntent,
   getTransactionService,
 } from "../../services/transactions.js";
+import { requireTxOwnership } from "../../services/authorization.js";
 
 export const transactionsRouter = Router();
 
@@ -77,8 +78,9 @@ transactionsRouter.get(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      requireOperator(req);
+      const auth = requireOperator(req);
       const row = await getTransactionService(req.params.id as string);
+      await requireTxOwnership(row, auth.operatorId);
       res.json({
         data: {
           transactionId: row.id,
@@ -103,6 +105,8 @@ transactionsRouter.post(
     try {
       const auth = requireOperator(req);
       const body = req.body as { status?: TransactionStatus };
+      const existing = await getTransactionService(req.params.id as string);
+      await requireTxOwnership(existing, auth.operatorId);
       const row = await advanceTransactionService(
         req.params.id as string,
         body.status as TransactionStatus,
@@ -123,6 +127,8 @@ transactionsRouter.post(
     try {
       const auth = requireOperator(req);
       const handle = connectMidnight(resolveMidnightConfig(process.env));
+      const existing = await getTransactionService(req.params.id as string);
+      await requireTxOwnership(existing, auth.operatorId);
       const row = await confirmTransactionService(
         req.params.id as string,
         handle,

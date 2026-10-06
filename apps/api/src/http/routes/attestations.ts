@@ -16,6 +16,10 @@ import {
   runIdempotent,
 } from "../../services/idempotency.js";
 import {
+  requireAttestationOwnership,
+  requireFlagOwnership,
+} from "../../services/authorization.js";
+import {
   autoEvaluateService,
   buildDecisionFromAttestation,
   getAttestationService,
@@ -74,6 +78,7 @@ attestationsRouter.post(
           "flagId and expiresAt required",
         );
       }
+      await requireFlagOwnership(body.flagId, auth.operatorId);
       const outcome = await runIdempotent({
         key: body.idempotencyKey,
         operatorId: auth.operatorId,
@@ -104,7 +109,11 @@ attestationsRouter.get(
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      requireOperator(req);
+      const auth = requireOperator(req);
+      await requireAttestationOwnership(
+        req.params.id as string,
+        auth.operatorId,
+      );
       const view = await getAttestationService(req.params.id as string);
       res.json({ data: view });
     } catch (error) {
@@ -155,6 +164,10 @@ attestationsRouter.post(
     try {
       const auth = requireOperator(req);
       const body = req.body as { strictness?: number };
+      await requireAttestationOwnership(
+        req.params.id as string,
+        auth.operatorId,
+      );
       const outcome = await autoEvaluateService({
         attestationId: req.params.id as string,
         operatorId: auth.operatorId,
@@ -177,6 +190,10 @@ attestationsRouter.post(
       const body = req.body as {
         action?: "partial-slash" | "full-slash" | "dismiss";
       };
+      await requireAttestationOwnership(
+        req.params.id as string,
+        auth.operatorId,
+      );
       const outcome = await issueDecisionService({
         attestationId: req.params.id as string,
         operatorId: auth.operatorId,
@@ -203,6 +220,10 @@ attestationsRouter.post(
       if (!body.idempotencyKey) {
         throw new ApiError("INVALID_IDENTIFIER", "idempotencyKey required");
       }
+      await requireAttestationOwnership(
+        req.params.id as string,
+        auth.operatorId,
+      );
       const { attestation, flag } = await buildDecisionFromAttestation(
         req.params.id as string,
       );

@@ -9,6 +9,7 @@
  * Sessions store token hashes only. Expired/revoked sessions are rejected.
  */
 import type { Request, Response, NextFunction } from "express";
+import { timingSafeEqual } from "node:crypto";
 import { loadConfig } from "../config.js";
 import { ApiError } from "./errors.js";
 import {
@@ -54,7 +55,13 @@ export async function issueDevSession(
 
 export function checkDevKey(provided: string | undefined): void {
   const config = loadConfig();
-  if (config.devAuthToken === null || provided !== config.devAuthToken) {
+  // Constant-time comparison: dev keys are short, but brute-force
+  // resistance must not depend on early-exit timing cliffs.
+  const expected = config.devAuthToken ?? "";
+  const a = Buffer.from(provided ?? "");
+  const b = Buffer.from(expected);
+  const match = a.length === b.length && b.length > 0 && timingSafeEqual(a, b);
+  if (config.devAuthToken === null || !match) {
     throw new ApiError("UNAUTHORIZED", "Invalid development credentials");
   }
 }

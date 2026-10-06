@@ -4,7 +4,7 @@
  * enforcement-intent creation. Attestors never submit transactions —
  * enforcement goes through transaction intents like everything else.
  */
-import { randomUUID, createHash } from "node:crypto";
+import { randomUUID, createHash, timingSafeEqual } from "node:crypto";
 import {
   createAttestationRequest,
   issueDecision,
@@ -87,7 +87,17 @@ export async function checkAttestorSecret(
     [attestorId],
   );
   const row = result.rows[0];
-  if (!row || row.secret_hash !== hashAttestorSecret(secret)) {
+  const candidate = hashAttestorSecret(secret);
+  // Constant-time comparison on fixed-length hex digests.
+  const stored = row?.secret_hash ?? "";
+  const a = Buffer.from(candidate);
+  const b = Buffer.from(stored);
+  const match =
+    row !== undefined &&
+    a.length === b.length &&
+    b.length > 0 &&
+    timingSafeEqual(a, b);
+  if (!match) {
     throw new ApiError("UNAUTHORIZED", "Invalid attestor credential");
   }
   const attestor = await findAttestorById(attestorId);

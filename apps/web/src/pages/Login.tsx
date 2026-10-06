@@ -5,7 +5,7 @@
  */
 import { useState } from "react";
 import { ApiError } from "../api/client.js";
-import { useSession } from "../app/session.js";
+import { consumeExpiredNotice, useSession } from "../app/session.js";
 import { useNavigate } from "../app/router.js";
 import { useToast } from "../app/toast.js";
 import { PageHeader } from "../components/chrome.js";
@@ -20,6 +20,7 @@ export function LoginPage() {
   const [devKey, setDevKey] = useState(DEFAULT_DEV_KEY);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [expiredNotice] = useState(() => consumeExpiredNotice());
 
   if (session.token) {
     navigate("/dashboard");
@@ -54,6 +55,15 @@ export function LoginPage() {
           Wallet connection unavailable in development. Sessions here are local
           dev tokens — never mainnet credentials.
         </div>
+        {expiredNotice ? (
+          <div
+            className="alert alert-info"
+            role="status"
+            style={{ marginBottom: "1rem" }}
+          >
+            Your session expired. Please sign in again.
+          </div>
+        ) : null}
         {error ? (
           <div
             className="alert alert-error"
