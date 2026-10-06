@@ -24,6 +24,7 @@ import {
   registerBondExecutors,
   registerBondFinalizers,
 } from "./services/executors.js";
+import { startWorkerFromEnv, stopWorker } from "./services/worker/registry.js";
 import { closePool } from "./db/pool.js";
 import {
   createShutdownController,
@@ -51,6 +52,15 @@ const FALLBACK_CONFIG: ApiConfig = {
   pgStatementTimeoutMs: 30000,
   pgPoolMax: 10,
   idempotencyTtlHours: 24,
+  workerEnabled: false,
+  workerConcurrency: 5,
+  workerPollIntervalMs: 5000,
+  workerLeaseMs: 60000,
+  workerMaxAttempts: 5,
+  workerBackoffBaseMs: 1000,
+  workerBackoffMaxMs: 60000,
+  workerSubmittedReconcileAfterMs: 300000,
+  workerReconcileIntervalMs: 60000,
 };
 
 function loadConfigSafe(): ApiConfig {
@@ -150,10 +160,14 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     shutdownTimeoutMs: config.shutdownTimeoutMs,
     onLog: (message: string) => console.log(message),
     exit: (code: number) => process.exit(code),
+    onDrainStart: async () => {
+      await stopWorker();
+    },
   });
   installProcessHandlers(
     process,
     (signal: string) => controller.shutdown(signal),
     (message: string) => console.log(message),
   );
+  startWorkerFromEnv();
 }

@@ -14,6 +14,11 @@ export interface ShutdownDeps {
   readonly shutdownTimeoutMs: number;
   readonly onLog: (message: string) => void;
   readonly exit: (code: number) => void;
+  /**
+   * Optional drain hook (e.g. background worker stop). Runs first inside
+   * the grace period; failures are logged, never fatal to shutdown.
+   */
+  readonly onDrainStart?: () => Promise<void>;
 }
 
 export type ShutdownPhase = "running" | "draining" | "done";
@@ -45,6 +50,15 @@ export function createShutdownController(deps: ShutdownDeps): {
     });
     await Promise.race([
       (async () => {
+        if (deps.onDrainStart) {
+          try {
+            await deps.onDrainStart();
+          } catch (error) {
+            deps.onLog(
+              `Error in drain hook: ${error instanceof Error ? error.message : "unknown"}`,
+            );
+          }
+        }
         try {
           await deps.closeServer();
         } catch (error) {

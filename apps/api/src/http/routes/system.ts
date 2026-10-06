@@ -15,6 +15,38 @@
 import type { Request, Response } from "express";
 import { Pool } from "pg";
 import { resolveMidnightConfig } from "@bond/midnight-adapter";
+import { getWorkerSnapshot } from "../../services/worker/registry.js";
+import type { WorkerSnapshot } from "../../services/worker/types.js";
+
+/** Null when no runtime exists here; never throws (readiness must not fail on it). */
+function workerSnapshot(): {
+  readonly enabled: boolean;
+  readonly phase: string;
+  readonly running: boolean;
+  readonly draining: boolean;
+  readonly lastPollAt: string | null;
+  readonly activeJobs: number;
+  readonly lastError: string | null;
+} | null {
+  let snapshot: WorkerSnapshot | null = null;
+  try {
+    snapshot = getWorkerSnapshot();
+  } catch {
+    return null;
+  }
+  if (!snapshot) {
+    return null;
+  }
+  return {
+    enabled: snapshot.enabled,
+    phase: snapshot.phase,
+    running: snapshot.phase === "RUNNING",
+    draining: snapshot.phase === "DRAINING",
+    lastPollAt: snapshot.stats.lastPollAt,
+    activeJobs: snapshot.stats.activeJobs,
+    lastError: snapshot.stats.lastError,
+  };
+}
 
 export interface ReadinessCheck {
   readonly ready: boolean;
@@ -24,6 +56,20 @@ export interface ReadinessCheck {
       readonly mode: string;
       readonly network: string | null;
     };
+    /**
+     * Worker snapshot when a runtime exists in this process, else null
+     * (worker disabled or never started). Safe fields only: no
+     * credentials, URLs, amounts, nullifiers, or secrets.
+     */
+    readonly worker: {
+      readonly enabled: boolean;
+      readonly phase: string;
+      readonly running: boolean;
+      readonly draining: boolean;
+      readonly lastPollAt: string | null;
+      readonly activeJobs: number;
+      readonly lastError: string | null;
+    } | null;
   };
 }
 
@@ -83,6 +129,7 @@ export async function checkReadiness(
     checks: {
       database: { ok: dbOk, schema: schemaOk },
       midnight: { mode, network },
+      worker: workerSnapshot(),
     },
   };
 }

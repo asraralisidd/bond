@@ -20,6 +20,12 @@ export interface ChainTxRow {
   readonly attempts: number;
   readonly last_error: string | null;
   readonly confirmed_at: string | null;
+  readonly claimed_by: string | null;
+  readonly claimed_at: string | null;
+  readonly next_attempt_at: string | null;
+  readonly max_attempts: number;
+  readonly reconciliation_required: boolean;
+  readonly dead_letter: boolean;
 }
 
 export async function insertChainTransaction(
@@ -43,6 +49,9 @@ export async function insertChainTransaction(
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING id, purpose, agent_id, bond_id, idempotency_key, status,
        chain_tx_id, nullifier, attempts, last_error,
+       claimed_by, claimed_at,
+       to_char(next_attempt_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS next_attempt_at,
+       max_attempts, reconciliation_required, dead_letter,
        to_char(confirmed_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS confirmed_at`,
     [
       input.id,
@@ -71,6 +80,9 @@ export async function findChainTransactionById(
   const result = await query<ChainTxRow>(
     `SELECT id, purpose, agent_id, bond_id, idempotency_key, status,
        chain_tx_id, nullifier, attempts, last_error,
+       claimed_by, claimed_at,
+       to_char(next_attempt_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS next_attempt_at,
+       max_attempts, reconciliation_required, dead_letter,
        to_char(confirmed_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS confirmed_at
      FROM chain_transactions WHERE id = $1`,
     [id],
@@ -91,6 +103,9 @@ export async function findChainTransactionByIdForUpdate(
   const result = await query<ChainTxRow>(
     `SELECT id, purpose, agent_id, bond_id, idempotency_key, status,
        chain_tx_id, nullifier, attempts, last_error,
+       claimed_by, claimed_at,
+       to_char(next_attempt_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS next_attempt_at,
+       max_attempts, reconciliation_required, dead_letter,
        to_char(confirmed_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS confirmed_at
      FROM chain_transactions WHERE id = $1 FOR UPDATE`,
     [id],
@@ -106,6 +121,9 @@ export async function findChainTransactionByIdempotencyKey(
   const result = await query<ChainTxRow>(
     `SELECT id, purpose, agent_id, bond_id, idempotency_key, status,
        chain_tx_id, nullifier, attempts, last_error,
+       claimed_by, claimed_at,
+       to_char(next_attempt_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS next_attempt_at,
+       max_attempts, reconciliation_required, dead_letter,
        to_char(confirmed_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS confirmed_at
      FROM chain_transactions WHERE idempotency_key = $1`,
     [key],
@@ -151,6 +169,9 @@ export async function listPendingChainTransactions(
   const result = await query<ChainTxRow>(
     `SELECT id, purpose, agent_id, bond_id, idempotency_key, status,
        chain_tx_id, nullifier, attempts, last_error,
+       claimed_by, claimed_at,
+       to_char(next_attempt_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS next_attempt_at,
+       max_attempts, reconciliation_required, dead_letter,
        to_char(confirmed_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS confirmed_at
      FROM chain_transactions
      WHERE status IN ('PENDING', 'SUBMITTED')
@@ -450,4 +471,169 @@ export async function upsertSyncCheckpoint(
     [contractAddress, lastMarker, conflictDelta],
     client,
   );
+}
+
+export interface TxClaimInput {
+  readonly workerId: string;
+  readonly leaseMs: number;
+  readonly limit: number;
+  readonly nowIso: string;
+}
+
+/**
+ * Atomically claims due PENDING jobs for one worker. A row is claimable
+ * when it is PENDING, scheduled (next_attempt_at passed or unset), not
+ * dead-lettered, and unclaimed or lease-expired. SKIP LOCKED lets
+ * concurrent workers divide work without waiting on each other.
+ * Claiming sets attempts = attempts + 1 exactly once per claim.
+ */
+export async function claimPendingTransactions(
+  input: TxClaimInput,
+  client: PoolClient,
+): Promise<ChainTxRow[]> {
+  const result = await query<ChainTxRow>(
+    `UPDATE chain_transactions AS t SET
+       claimed_by = $1,
+       claimed_at = $2,
+       attempts = attempts + 1,
+       updated_at = now()
+     WHERE t.id IN (
+       SELECT c.id FROM chain_transactions AS c
+       WHERE c.status = 'PENDING'
+         AND c.dead_letter = FALSE
+         AND c.reconciliation_required = FALSE
+         AND (c.next_attempt_at IS NULL OR c.next_attempt_at <= $2)
+         AND (c.claimed_by IS NULL OR c.claimed_at < $2::timestamptz - make_interval(secs => $3))
+       ORDER BY c.created_at ASC
+       LIMIT $4
+       FOR UPDATE SKIP LOCKED
+     )
+     RETURNING t.id, t.purpose, t.agent_id, t.bond_id, t.idempotency_key,
+       t.status, t.chain_tx_id, t.nullifier, t.attempts, t.last_error,
+       t.claimed_by, t.claimed_at,
+       to_char(t.next_attempt_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS next_attempt_at,
+       t.max_attempts, t.reconciliation_required, t.dead_letter,
+       to_char(t.confirmed_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS confirmed_at`,
+    [input.workerId, input.nowIso, input.leaseMs / 1000, input.limit],
+    client,
+  );
+  return result.rows;
+}
+
+/** Releases a claim so the row becomes claimable again (lease expired). */
+export async function releaseTxClaim(
+  id: string,
+  client: PoolClient,
+): Promise<void> {
+  await query(
+    `UPDATE chain_transactions SET claimed_by = NULL, claimed_at = NULL,
+       updated_at = now() WHERE id = $1`,
+    [id],
+    client,
+  );
+}
+
+/** Schedules the next attempt with backoff; releases the claim. */
+export async function scheduleTxRetry(
+  id: string,
+  nextAttemptAt: string,
+  lastError: string,
+  client: PoolClient,
+): Promise<void> {
+  await query(
+    `UPDATE chain_transactions SET claimed_by = NULL, claimed_at = NULL,
+       next_attempt_at = $2, last_error = $3, updated_at = now()
+     WHERE id = $1`,
+    [id, nextAttemptAt, lastError],
+    client,
+  );
+}
+
+/** Terminal failure: FAILED + dead-lettered, claim released. */
+export async function markTxDeadLetter(
+  id: string,
+  lastError: string,
+  client: PoolClient,
+): Promise<void> {
+  await query(
+    `UPDATE chain_transactions SET status = 'FAILED', dead_letter = TRUE,
+       claimed_by = NULL, claimed_at = NULL, last_error = $2,
+       updated_at = now()
+     WHERE id = $1`,
+    [id, lastError],
+    client,
+  );
+}
+
+/** Marks a row as needing reconciliation (uncertain outcome, never blind retry). */
+export async function markReconciliationRequired(
+  id: string,
+  lastError: string,
+  client: PoolClient,
+): Promise<void> {
+  await query(
+    `UPDATE chain_transactions SET reconciliation_required = TRUE,
+       claimed_by = NULL, claimed_at = NULL, last_error = $2,
+       updated_at = now()
+     WHERE id = $1`,
+    [id, lastError],
+    client,
+  );
+}
+
+export async function clearReconciliationRequired(
+  id: string,
+  client: PoolClient,
+): Promise<void> {
+  await query(
+    `UPDATE chain_transactions SET reconciliation_required = FALSE,
+       updated_at = now()
+     WHERE id = $1`,
+    [id],
+    client,
+  );
+}
+
+/** SUBMITTED rows older than the threshold that still need attention. */
+export async function findStuckSubmitted(
+  olderThanIso: string,
+  limit: number,
+  client?: PoolClient,
+): Promise<ChainTxRow[]> {
+  const result = await query<ChainTxRow>(
+    `SELECT id, purpose, agent_id, bond_id, idempotency_key, status,
+       chain_tx_id, nullifier, attempts, last_error,
+       claimed_by, claimed_at,
+       to_char(next_attempt_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS next_attempt_at,
+       max_attempts, reconciliation_required, dead_letter,
+       to_char(confirmed_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS confirmed_at
+     FROM chain_transactions
+     WHERE status = 'SUBMITTED' AND dead_letter = FALSE
+       AND updated_at < $1
+     ORDER BY updated_at ASC LIMIT $2`,
+    [olderThanIso, limit],
+    client,
+  );
+  return result.rows;
+}
+
+/** Rows flagged for reconciliation, oldest first. */
+export async function findReconciliationRequired(
+  limit: number,
+  client?: PoolClient,
+): Promise<ChainTxRow[]> {
+  const result = await query<ChainTxRow>(
+    `SELECT id, purpose, agent_id, bond_id, idempotency_key, status,
+       chain_tx_id, nullifier, attempts, last_error,
+       claimed_by, claimed_at,
+       to_char(next_attempt_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS next_attempt_at,
+       max_attempts, reconciliation_required, dead_letter,
+       to_char(confirmed_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS confirmed_at
+     FROM chain_transactions
+     WHERE reconciliation_required = TRUE AND dead_letter = FALSE
+     ORDER BY updated_at ASC LIMIT $1`,
+    [limit],
+    client,
+  );
+  return result.rows;
 }

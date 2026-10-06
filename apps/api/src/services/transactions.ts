@@ -52,6 +52,13 @@ export function registerPurposeExecutor(
   executors.set(purpose, executor);
 }
 
+/** Executor lookup for the worker submit path (SIMULATED registry). */
+export function getPurposeExecutor(
+  purpose: string,
+): PurposeExecutor | undefined {
+  return executors.get(purpose);
+}
+
 export type PurposeFinalizer = (
   row: ChainTxRow,
   client: PoolClient,

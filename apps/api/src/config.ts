@@ -29,6 +29,15 @@ export interface ApiConfig {
   readonly pgStatementTimeoutMs: number;
   readonly pgPoolMax: number;
   readonly idempotencyTtlHours: number;
+  readonly workerEnabled: boolean;
+  readonly workerConcurrency: number;
+  readonly workerPollIntervalMs: number;
+  readonly workerLeaseMs: number;
+  readonly workerMaxAttempts: number;
+  readonly workerBackoffBaseMs: number;
+  readonly workerBackoffMaxMs: number;
+  readonly workerSubmittedReconcileAfterMs: number;
+  readonly workerReconcileIntervalMs: number;
 }
 
 function required(name: string, env: NodeJS.ProcessEnv): string {
@@ -127,6 +136,17 @@ function parsePositiveIntEnv(
   return value;
 }
 
+function parseWorkerFlag(env: NodeJS.ProcessEnv): boolean {
+  const raw = (env.WORKER_ENABLED ?? "true").trim().toLowerCase();
+  if (raw === "true" || raw === "1" || raw === "yes") {
+    return true;
+  }
+  if (raw === "false" || raw === "0" || raw === "no") {
+    return false;
+  }
+  throw new Error(`Invalid WORKER_ENABLED: ${env.WORKER_ENABLED}`);
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   const nodeEnv = parseNodeEnv(env);
   const portRaw = env.API_PORT ?? "4000";
@@ -165,5 +185,34 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     ),
     pgPoolMax: parsePositiveIntEnv("PG_POOL_MAX", env, 10),
     idempotencyTtlHours: parsePositiveIntEnv("IDEMPOTENCY_TTL_HOURS", env, 24),
+    workerEnabled: parseWorkerFlag(env),
+    workerConcurrency: parsePositiveIntEnv("WORKER_CONCURRENCY", env, 5),
+    workerPollIntervalMs: parsePositiveIntEnv(
+      "WORKER_POLL_INTERVAL_MS",
+      env,
+      5000,
+    ),
+    workerLeaseMs: parsePositiveIntEnv("WORKER_LEASE_MS", env, 60000),
+    workerMaxAttempts: parsePositiveIntEnv("WORKER_MAX_ATTEMPTS", env, 5),
+    workerBackoffBaseMs: parsePositiveIntEnv(
+      "WORKER_BACKOFF_BASE_MS",
+      env,
+      1000,
+    ),
+    workerBackoffMaxMs: parsePositiveIntEnv(
+      "WORKER_BACKOFF_MAX_MS",
+      env,
+      60000,
+    ),
+    workerSubmittedReconcileAfterMs: parsePositiveIntEnv(
+      "WORKER_SUBMITTED_RECONCILE_AFTER_MS",
+      env,
+      300000,
+    ),
+    workerReconcileIntervalMs: parsePositiveIntEnv(
+      "WORKER_RECONCILE_INTERVAL_MS",
+      env,
+      60000,
+    ),
   };
 }
