@@ -61,6 +61,17 @@ export async function registerAttestorService(input: {
     );
   }
   const id = input.attestorId?.trim() || randomUUID();
+  if (input.attestorId?.trim()) {
+    // Strict shape for caller-supplied identifiers (DomainError → 400).
+    parseAttestorId(id);
+  }
+  // Create-only: re-registering an existing attestor id would overwrite
+  // its secret, letting any operator impersonate/reset another attestor's
+  // credential. Collisions fail closed instead.
+  const existing = await findAttestorById(id);
+  if (existing) {
+    throw new ApiError("INVALID_IDENTIFIER", "Attestor id already registered");
+  }
   await upsertAttestor({
     id,
     organization: input.organization.trim(),

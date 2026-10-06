@@ -6,6 +6,7 @@ import type { Request, Response, NextFunction } from "express";
 import type { AgentStatus } from "@bond/shared-types";
 import { toAgentPrivateView } from "../dto.js";
 import { requireAuth, requireOperator } from "../auth.js";
+import { ApiError } from "../errors.js";
 import { rateLimitFor } from "../rate-limit/middleware.js";
 import {
   getAgentService,
@@ -65,7 +66,14 @@ agentsRouter.get(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const auth = requireOperator(req);
-      const limit = Number(req.query.limit ?? 50);
+      const rawLimit = req.query.limit ?? 50;
+      const limit =
+        typeof rawLimit === "string" || typeof rawLimit === "number"
+          ? Number(rawLimit)
+          : NaN;
+      if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+        throw new ApiError("INVALID_IDENTIFIER", "Invalid limit");
+      }
       const rows = await listAgentsService(auth.operatorId, limit);
       res.json({ data: rows.map(toAgentPrivateView) });
     } catch (error) {
