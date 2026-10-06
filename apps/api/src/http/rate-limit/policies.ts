@@ -191,6 +191,12 @@ export function classifyRequest(
     return "auth";
   }
   if (
+    path === "/api/v1/auth/wallet/challenge" ||
+    path === "/api/v1/auth/wallet/verify"
+  ) {
+    return "auth";
+  }
+  if (
     path.startsWith("/api/v1/public/agents/") &&
     path.endsWith("/eligibility")
   ) {

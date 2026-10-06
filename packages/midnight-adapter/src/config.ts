@@ -87,6 +87,16 @@ export function resolveMidnightConfig(
       zkAssetsPath,
     };
   }
+  // Phase 11: only networks with verified presets are REAL-capable.
+  // 'mainnet'/'preview' fall through to no single verified endpoint set
+  // and must fail closed rather than inherit preprod endpoints.
+  if (rawNetwork === "mainnet" || rawNetwork === "preview") {
+    throw new DomainError(
+      "INVALID_IDENTIFIER",
+      `MIDNIGHT_NETWORK '${rawNetwork}' is not enabled — supported values: undeployed, preprod, simulated, off`,
+      { value: rawNetwork },
+    );
+  }
   if (!isNetworkId(rawNetwork)) {
     throw new DomainError(
       "INVALID_IDENTIFIER",

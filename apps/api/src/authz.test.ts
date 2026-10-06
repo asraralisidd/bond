@@ -325,8 +325,10 @@ describe("D. production fail-closed", () => {
     const previousNodeEnv = process.env.NODE_ENV;
     const previousToken = process.env.DEV_AUTH_TOKEN;
     const previousCors = process.env.CORS_ORIGINS;
+    const previousNetwork = process.env.MIDNIGHT_NETWORK;
     process.env.NODE_ENV = "production";
     process.env.CORS_ORIGINS = "https://app.example";
+    process.env.MIDNIGHT_NETWORK = "undeployed";
     delete process.env.DEV_AUTH_TOKEN;
     try {
       await expect(issueDevSession("mallory")).rejects.toThrowError(
@@ -337,6 +339,11 @@ describe("D. production fail-closed", () => {
         delete process.env.NODE_ENV;
       } else {
         process.env.NODE_ENV = previousNodeEnv;
+      }
+      if (previousNetwork === undefined) {
+        delete process.env.MIDNIGHT_NETWORK;
+      } else {
+        process.env.MIDNIGHT_NETWORK = previousNetwork;
       }
       if (previousToken !== undefined) {
         process.env.DEV_AUTH_TOKEN = previousToken;

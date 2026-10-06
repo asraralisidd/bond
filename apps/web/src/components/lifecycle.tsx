@@ -72,6 +72,16 @@ export function TxBadge({
   status: string;
   mode?: string | null;
 }) {
+  // Honest lifecycle labels: intermediate states never claim success.
+  const honest: Record<string, string> = {
+    IDLE: "Draft",
+    WALLET_APPROVAL: "Awaiting Wallet Approval",
+    PENDING: "Awaiting Submission",
+    SUBMITTED: "Submitted",
+    CONFIRMED: "Confirmed",
+    FAILED: "Failed",
+  };
+  const label = honest[status] ?? status;
   return (
     <span className="row" style={{ gap: "0.4rem" }}>
       <span
@@ -83,7 +93,7 @@ export function TxBadge({
               : "badge-warn"
         }`}
       >
-        {status}
+        {label}
       </span>
       {mode && mode !== "REAL" ? (
         <span className="badge badge-warn" title="Simulated execution">

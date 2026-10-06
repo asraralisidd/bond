@@ -58,6 +58,9 @@ describe("adapter boundary (architectural)", () => {
         "@midnight-ntwrk/midnight-js-protocol",
         "@midnight-ntwrk/midnight-js-types",
         "@midnight-ntwrk/midnight-js-utils",
+        // Phase 11: bech32m address syntax validation for wallet auth.
+        // Verification crypto comes from compact-runtime (no new signer).
+        "@midnight-ntwrk/wallet-sdk-address-format",
       ].sort(),
     );
   });

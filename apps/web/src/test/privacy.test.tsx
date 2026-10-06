@@ -102,11 +102,11 @@ describe("public verification privacy", () => {
   it("SIMULATED transactions are never shown as confirmed", async () => {
     const sim = await render(<TxBadge status="SUBMITTED" mode="SIMULATED" />);
     expect(sim.innerHTML).toContain("SIMULATED");
-    expect(sim.innerHTML).not.toContain("CONFIRMED");
+    expect(sim.textContent).not.toContain("Confirmed");
     cleanup(sim);
 
     const confirmed = await render(<TxBadge status="CONFIRMED" mode="REAL" />);
-    expect(confirmed.innerHTML).toContain("CONFIRMED");
+    expect(confirmed.textContent).toContain("Confirmed");
     expect(confirmed.innerHTML).not.toContain("SIMULATED");
     cleanup(confirmed);
 
