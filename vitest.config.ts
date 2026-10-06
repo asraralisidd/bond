@@ -24,10 +24,12 @@ export default defineConfig({
   test: {
     globals: false,
     environment: "node",
+    environmentMatchGlobs: [["apps/web/**", "jsdom"]],
     include: [
       "tests/**/*.test.ts",
       "packages/*/src/**/*.test.ts",
       "apps/api/src/**/*.test.ts",
+      "apps/web/src/**/*.test.{ts,tsx}",
     ],
     coverage: {
       enabled: false,
