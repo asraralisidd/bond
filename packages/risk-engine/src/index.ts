@@ -13,6 +13,7 @@ export * from "./versions.js";
 export * from "./input.js";
 export * from "./evidence.js";
 export * from "./rules.js";
+export * from "./behavioral.js";
 export * from "./scoring.js";
 export * from "./dedup.js";
 export * from "./engine.js";

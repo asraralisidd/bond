@@ -37,8 +37,18 @@ AI_DEMO_CAPABILITIES = ("demo-messaging", "demo-tool-use")
 
 BENIGN_REF = "ai-demo-agent-benign-v1"
 RISKY_REF = "ai-demo-agent-risky-v1"
+BEHAVIORAL_REF = "ai-demo-agent-behavioral-v1"
 
 FIXED_OCCURRED_AT = "2026-01-01T00:00:00.000Z"
+BEHAVIORAL_BASE_AT = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+#: Behavioral rule IDs (Phase 20, deterministic statistics — no ML).
+BEHAVIORAL_RULE_IDS = (
+    "activity-burst",
+    "spend-velocity",
+    "novel-tool",
+    "repeat-violation",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -75,7 +85,7 @@ class ScriptedModelProvider:
     """
 
     def __init__(self, scenario: str) -> None:
-        if scenario not in ("benign", "risky"):
+        if scenario not in ("benign", "risky", "behavioral"):
             raise BondApiError(
                 "INVALID_IDENTIFIER",
                 f"Unknown demo scenario: {scenario}",
@@ -261,7 +271,13 @@ class AIAgent:
         )
         self._client.set_token(session["token"])
         external_ref = (
-            BENIGN_REF if self._config.scenario == "benign" else RISKY_REF
+            BENIGN_REF
+            if self._config.scenario == "benign"
+            else (
+                RISKY_REF
+                if self._config.scenario == "risky"
+                else BEHAVIORAL_REF
+            )
         )
         agent = self._register(external_ref)
         agent_id = agent["agentId"]
@@ -288,6 +304,13 @@ class AIAgent:
             emit("")
             emit("Scenario:")
             emit(f"  {summary['scenario']}")
+
+            if self._config.scenario == "behavioral":
+                self._run_behavioral(emit, summary, agent_id, agent_client)
+                emit("")
+                emit("Enforcement:")
+                emit("  not-applicable (behavioral findings are advisory)")
+                return summary
 
             # 4-8. Model generates; SDK validates; API analyzes.
             response = self._model.generate(
@@ -357,8 +380,15 @@ class AIAgent:
 
             if self._config.scenario == "benign":
                 self._report_benign(summary, emit)
-            else:
+            elif self._config.scenario == "risky":
                 self._report_risky(summary, emit, agent_id)
+            else:
+                raise BondApiError(
+                    "INVALID_IDENTIFIER",
+                    f"Unknown demo scenario: {self._config.scenario}.",
+                    0,
+                    None,
+                )
 
             emit("")
             emit("Enforcement:")
@@ -369,6 +399,146 @@ class AIAgent:
             self._revoke_agent_credential(
                 summary, emit, agent_id, credential_id
             )
+
+    def _run_behavioral(
+        self,
+        emit: EmitFn,
+        summary: dict[str, Any],
+        agent_id: str,
+        agent_client: BondAgentClient,
+    ) -> None:
+        """Deterministic behavioral sequence (Phase 20, scripted only).
+
+        Submits a fixed 19-step script with +60s occurredAt steps:
+        benign baseline → burst → spend velocity → novel tool →
+        repeated denylist violations. Windows are server-side
+        (created_at), so the stepped occurredAt values are
+        reproducibility aids, not security inputs.
+        """
+        base_policy = ActivityPolicyContext(
+            policy_version=POLICY_VERSION,
+            allowed_actions=("pay-vendor",),
+            declared_tools=("transfers",),
+            spend_limit_minor_units=SPEND_LIMIT,
+        )
+        violation_policy = ActivityPolicyContext(
+            policy_version=POLICY_VERSION,
+            allowed_actions=("pay-vendor", "self-transfer"),
+            declared_tools=("transfers",),
+            denylisted_actions=("self-transfer",),
+            spend_limit_minor_units=SPEND_LIMIT,
+        )
+        steps: list[dict[str, Any]] = []
+        for _ in range(3):
+            steps.append(
+                {"action": "pay-vendor", "amount": "100", "policy": base_policy}
+            )
+        for _ in range(8):
+            steps.append(
+                {"action": "pay-vendor", "amount": "100", "policy": base_policy}
+            )
+        for _ in range(4):
+            steps.append(
+                {"action": "pay-vendor", "amount": "900", "policy": base_policy}
+            )
+        steps.append(
+            {
+                "action": "pay-vendor",
+                "amount": "100",
+                "tool": "shell-exec",
+                "policy": base_policy,
+            }
+        )
+        for _ in range(3):
+            steps.append(
+                {
+                    "action": "self-transfer",
+                    "amount": "100",
+                    "policy": violation_policy,
+                }
+            )
+        observed: dict[str, dict[str, Any]] = {}
+        emit("")
+        emit("Behavioral Sequence:")
+        for index, step in enumerate(steps):
+            occurred = (
+                BEHAVIORAL_BASE_AT + timedelta(seconds=60 * index)
+            ).isoformat()
+            params: dict[str, Any] = {
+                "amount_minor_units": step["amount"],
+                "occurred_at": occurred,
+            }
+            if "tool" in step:
+                params["tool"] = step["tool"]
+            activity = build_activity(
+                agent_id=agent_id,
+                action_type="transfer",
+                action=step["action"],
+                policy_context=step["policy"],
+                **params,
+            )
+            outcome = agent_client.analyze_activity(agent_id, activity)
+            factors = ((outcome.get("score") or {}).get("factors")) or []
+            step_behavioral = []
+            for factor in factors:
+                if not isinstance(factor, dict):
+                    continue
+                rule_id = factor.get("ruleId")
+                if rule_id in BEHAVIORAL_RULE_IDS:
+                    step_behavioral.append(rule_id)
+                    observed.setdefault(
+                        str(rule_id),
+                        {
+                            "severity": factor.get("severity"),
+                            "category": factor.get("category"),
+                        },
+                    )
+            emit(
+                f"  step {index + 1:02d}/{len(steps)} "
+                f"{step['action']}: "
+                f"behavioral={','.join(step_behavioral) or 'none'}"
+            )
+        summary["behavioralSteps"] = len(steps)
+        summary["behavioralRuleIds"] = sorted(observed)
+        summary["behavioralFindings"] = {
+            rule_id: observed[rule_id] for rule_id in sorted(observed)
+        }
+        recorded = agent_client.list_flags(agent_id) or []
+        summary["flagCount"] = len(recorded)
+        versions = sorted(
+            {
+                str(flag.get("modelVersion"))
+                for flag in recorded
+                if isinstance(flag, dict)
+                and "ruleset-v2" in str(flag.get("modelVersion", ""))
+            }
+        )
+        summary["behavioralModelVersions"] = versions
+        self._report_behavioral(summary, emit)
+
+    def _report_behavioral(
+        self, summary: dict[str, Any], emit: EmitFn
+    ) -> None:
+        if not summary["behavioralRuleIds"]:
+            raise BondApiError(
+                "INVALID_ACTIVITY_INPUT",
+                "Behavioral scenario produced no behavioral findings; "
+                "expected activity-burst / spend-velocity / novel-tool / "
+                "repeat-violation signals.",
+                0,
+                None,
+            )
+        emit("")
+        emit("Behavioral Findings (advisory — attestors still decide):")
+        for rule_id in summary["behavioralRuleIds"]:
+            detail = summary["behavioralFindings"][rule_id]
+            emit(
+                f"  - {rule_id}: "
+                f"{detail.get('category')} / {detail.get('severity')}"
+            )
+        emit("Behavioral Model Versions:")
+        for version in summary["behavioralModelVersions"]:
+            emit(f"  {version}")
 
     def _issue_agent_credential(
         self, agent_id: str
@@ -609,7 +779,7 @@ def main(argv: list[str] | None = None) -> int:
     client: BondClient | None = None
     try:
         config = AIDemoConfig.from_env()
-        if config.scenario not in ("benign", "risky"):
+        if config.scenario not in ("benign", "risky", "behavioral"):
             raise BondApiError(
                 "INVALID_IDENTIFIER",
                 f"Unknown BOND_DEMO_SCENARIO: {config.scenario}.",

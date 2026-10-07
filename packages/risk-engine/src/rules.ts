@@ -25,7 +25,11 @@ export interface RuleExplanation {
   readonly whyItMatters: string;
   /** Rule that fired, with version. */
   readonly ruleId: string;
-  readonly ruleVersion: typeof RULE_SET_VERSION;
+  /**
+   * Ruleset tag. Widened to string in Phase 20 so v2 findings fit
+   * the same shape; v1 analyzers still stamp exactly `ruleset-v1`.
+   */
+  readonly ruleVersion: string;
 }
 
 export interface RuleFinding {

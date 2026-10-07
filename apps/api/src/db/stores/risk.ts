@@ -166,3 +166,127 @@ export async function updateRiskFlagStatus(
     client,
   );
 }
+
+export async function findRiskAnalysisById(
+  id: string,
+  client?: PoolClient,
+): Promise<RiskAnalysisRow | null> {
+  const result = await query<RiskAnalysisRow>(
+    `SELECT id, agent_id, engine_version, ruleset_version, scoring_version,
+        score, request_id
+      FROM risk_analyses WHERE id = $1`,
+    [id],
+    client,
+  );
+  return result.rows[0] ?? null;
+}
+
+/**
+ * Phase 20 ledger: one server-written row per analyzed activity.
+ * Idempotent on analysis_id: replays never duplicate ledger state.
+ */
+export async function insertLedgerActivity(
+  input: {
+    readonly analysisId: string;
+    readonly agentId: string;
+    readonly actionType: string;
+    readonly action: string;
+    readonly tool?: string | null;
+    readonly amountMinorUnits?: string | null;
+    readonly bytesOut?: number | null;
+    readonly occurredAt: string;
+  },
+  client?: PoolClient,
+): Promise<void> {
+  await query(
+    `INSERT INTO agent_activity_ledger
+       (analysis_id, agent_id, action_type, action, tool,
+        amount_minor_units, bytes_out, occurred_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      ON CONFLICT (analysis_id) DO NOTHING`,
+    [
+      input.analysisId,
+      input.agentId,
+      input.actionType,
+      input.action,
+      input.tool ?? null,
+      input.amountMinorUnits ?? null,
+      input.bytesOut ?? null,
+      input.occurredAt,
+    ],
+    client,
+  );
+}
+
+export interface LedgerWindowRow {
+  readonly analysis_id: string;
+  readonly action: string;
+  readonly tool: string | null;
+  readonly amount_minor_units: string | null;
+  readonly created_at: string;
+}
+
+/**
+ * Bounded behavioral window: agent-scoped, server-time ordered,
+ * hard-limited. Uses activity_ledger_agent_time_idx — never a scan.
+ */
+export async function listLedgerWindow(
+  agentId: string,
+  sinceIso: string,
+  limit: number,
+  client?: PoolClient,
+): Promise<LedgerWindowRow[]> {
+  const result = await query<LedgerWindowRow>(
+    `SELECT analysis_id, action, tool, amount_minor_units, created_at
+      FROM agent_activity_ledger
+      WHERE agent_id = $1 AND created_at > $2
+      ORDER BY created_at DESC LIMIT $3`,
+    [agentId, sinceIso, limit],
+    client,
+  );
+  return result.rows;
+}
+
+export interface RecentFlagRow {
+  readonly category: string;
+  readonly status: string;
+  readonly created_at: string;
+}
+
+/** Bounded prior-flag window for repeat-violation counting. */
+export async function listRecentFlagsForBehavior(
+  agentId: string,
+  sinceIso: string,
+  limit: number,
+  client?: PoolClient,
+): Promise<RecentFlagRow[]> {
+  const result = await query<RecentFlagRow>(
+    `SELECT category, status, created_at
+      FROM risk_flags
+      WHERE agent_id = $1 AND created_at > $2
+      ORDER BY created_at DESC LIMIT $3`,
+    [agentId, sinceIso, limit],
+    client,
+  );
+  return result.rows;
+}
+
+/**
+ * Opportunistic retention purge (Phase 13 challenge-cleanup pattern):
+ * bounded, idempotent, best-effort. Analyses/flags (the audit trail)
+ * are never purged — only the behavioral feature rows.
+ */
+export async function purgeOldLedgerEntries(
+  olderThanDays: number,
+  limit: number,
+): Promise<number> {
+  const result = await query(
+    `DELETE FROM agent_activity_ledger WHERE ctid IN (
+       SELECT ctid FROM agent_activity_ledger
+       WHERE created_at < now() - ($1 || ' days')::interval
+       LIMIT $2
+     )`,
+    [String(olderThanDays), limit],
+  );
+  return result.rowCount ?? 0;
+}
