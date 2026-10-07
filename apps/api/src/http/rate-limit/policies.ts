@@ -184,7 +184,7 @@ export function classifyRequest(
   if (upper === "OPTIONS") {
     return null;
   }
-  if (path === "/health" || path === "/ready") {
+  if (path === "/health" || path === "/ready" || path === "/metrics") {
     return null;
   }
   if (path === "/api/v1/auth/session") {
