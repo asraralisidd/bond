@@ -54,6 +54,10 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      # Required: the production API origin baked into the bundle.
+      # Empty/unset fails the image build by design (never localhost).
+      args:
+        VITE_API_URL: ${VITE_API_URL:?VITE_API_URL must be set (e.g. in .env) to build the web image}
     container_name: bond-web
     restart: unless-stopped
     depends_on:

@@ -65,8 +65,29 @@ export function friendlyMessage(error: unknown): string {
 
 const TOKEN_KEY = "bond.session.token";
 
+/**
+ * Resolve the API base URL. Production builds MUST set VITE_API_URL
+ * explicitly — a silent localhost default in a production bundle would
+ * point the app at a nonexistent backend. Development keeps the
+ * convenient localhost default.
+ */
+export function resolveApiBase(
+  configured: string | undefined,
+  isProduction: boolean,
+): string {
+  if (typeof configured === "string" && configured.length > 0) {
+    return configured;
+  }
+  if (isProduction) {
+    throw new Error(
+      "VITE_API_URL must be set for production builds; refusing the localhost default.",
+    );
+  }
+  return "http://localhost:4000";
+}
+
 export function getApiBase(): string {
-  return import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+  return resolveApiBase(import.meta.env.VITE_API_URL, import.meta.env.PROD);
 }
 
 export function getToken(): string | null {

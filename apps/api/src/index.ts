@@ -5,6 +5,7 @@ import type { HealthResponse } from "@bond/shared-types";
 import { loadConfig } from "./config.js";
 import type { ApiConfig } from "./config.js";
 import { requestIdMiddleware } from "./http/request-id.js";
+import { metricsHandler, metricsMiddleware } from "./http/metrics.js";
 import { globalRateLimit } from "./http/rate-limit/middleware.js";
 import { configureRateLimiting } from "./http/rate-limit/registry.js";
 import { errorHandler } from "./http/errors.js";
@@ -95,6 +96,8 @@ export function createApp(): express.Express {
   );
   // 2. Request correlation early so every rejection carries an id.
   app.use(requestIdMiddleware);
+  // 2b. Metrics observation (never rejects; records on finish).
+  app.use(metricsMiddleware);
   // 3. CORS allowlist (explicit origins only — never '*').
   app.use(
     cors({
@@ -131,6 +134,8 @@ export function createApp(): express.Express {
   });
 
   app.get("/ready", readyHandler);
+
+  app.get("/metrics", metricsHandler);
 
   app.use("/api/v1/auth", authRouter);
   app.use("/api/v1/agents", agentsRouter);

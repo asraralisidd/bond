@@ -1,6 +1,15 @@
 # syntax=docker/dockerfile:1
 FROM node:20-alpine AS build
 WORKDIR /app
+# Production API origin, baked in at build time (Vite semantics).
+# A production image MUST NOT be producible without it: an empty
+# VITE_API_URL fails the build here (structural prevention), and the
+# app additionally refuses the localhost default at runtime
+# (see resolveApiBase). Local development uses `npm run dev:web`,
+# never this image, so no dev convenience is lost.
+ARG VITE_API_URL
+RUN if [ -z "$VITE_API_URL" ]; then echo "ERROR: VITE_API_URL build-arg is required (e.g. --build-arg VITE_API_URL=https://api.example.com); refusing to bake a localhost production bundle." >&2; exit 1; fi
+ENV VITE_API_URL=${VITE_API_URL}
 COPY package.json package-lock.json* ./
 COPY tsconfig.base.json ./
 COPY apps/web/package.json ./apps/web/
