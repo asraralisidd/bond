@@ -90,7 +90,10 @@ describe("api client", () => {
       }
     ).__calls;
     const headers = calls[0]?.init?.headers as Record<string, string>;
-    expect(headers["Idempotency-Key"]).toMatch(/^[0-9a-f]{32}$/);
+    // Fresh random key per mutation (UUID v4 via the shared SDK).
+    expect(headers["Idempotency-Key"]).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
     restore();
   });
 

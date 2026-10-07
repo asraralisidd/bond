@@ -14,11 +14,13 @@ COPY package.json package-lock.json* ./
 COPY tsconfig.base.json ./
 COPY apps/web/package.json ./apps/web/
 COPY packages/shared-types/package.json ./packages/shared-types/
+COPY packages/sdk/package.json ./packages/sdk/
 RUN npm install --ignore-scripts
 COPY packages/shared-types ./packages/shared-types
+COPY packages/sdk ./packages/sdk
 COPY apps/web ./apps/web
 WORKDIR /app/apps/web
-RUN npm run build
+RUN npm run build --workspace=@bond/sdk && npm run build --workspace=@bond/sdk && npm run build
 
 FROM nginx:1.27-alpine AS runtime
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html

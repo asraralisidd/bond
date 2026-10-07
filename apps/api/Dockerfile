@@ -10,6 +10,7 @@ COPY packages/risk-engine/package.json ./packages/risk-engine/
 COPY packages/attestor/package.json ./packages/attestor/
 COPY packages/contract/package.json ./packages/contract/
 COPY packages/midnight-adapter/package.json ./packages/midnight-adapter/
+COPY packages/sdk/package.json ./packages/sdk/
 RUN npm install --ignore-scripts
 COPY packages ./packages
 COPY contracts ./contracts
