@@ -1,0 +1,250 @@
+{
+  "$schema": "bond-protocol-vectors-v1",
+  "category": "activities",
+  "description": "RawActivityInput payloads for POST /api/v1/risk/analyses (sent as the `activity` member alongside `agentId`). `input` uses canonical camelCase keys; each runner maps to its SDK builder input and asserts the built payload deep-equals `expected`. Invalid vectors assert deterministic client-side INVALID_ACTIVITY_INPUT in both SDKs. All values synthetic; no secrets.",
+  "valid": [
+    {
+      "name": "tool-call",
+      "input": {
+        "activityId": "act-vector-001",
+        "agentId": "agent-vector-1",
+        "occurredAt": "2026-01-01T00:00:00.000Z",
+        "actionType": "tool-call",
+        "action": "pay-vendor",
+        "tool": "transfers",
+        "policyContext": {
+          "policyVersion": "bond-policy-v1",
+          "allowedActions": ["pay-vendor"]
+        }
+      },
+      "expected": {
+        "activityId": "act-vector-001",
+        "agentId": "agent-vector-1",
+        "occurredAt": "2026-01-01T00:00:00.000Z",
+        "actionType": "tool-call",
+        "action": "pay-vendor",
+        "tool": "transfers",
+        "policyContext": {
+          "policyVersion": "bond-policy-v1",
+          "allowedActions": ["pay-vendor"]
+        }
+      }
+    },
+    {
+      "name": "transfer",
+      "input": {
+        "activityId": "act-vector-002",
+        "agentId": "agent-vector-1",
+        "occurredAt": "2026-01-02T12:30:00.000Z",
+        "actionType": "transfer",
+        "action": "settle-invoice",
+        "amountMinorUnits": "1000",
+        "externalDestination": true,
+        "policyContext": {
+          "policyVersion": "bond-policy-v1",
+          "spendLimitMinorUnits": "5000"
+        }
+      },
+      "expected": {
+        "activityId": "act-vector-002",
+        "agentId": "agent-vector-1",
+        "occurredAt": "2026-01-02T12:30:00.000Z",
+        "actionType": "transfer",
+        "action": "settle-invoice",
+        "amountMinorUnits": "1000",
+        "externalDestination": true,
+        "policyContext": {
+          "policyVersion": "bond-policy-v1",
+          "spendLimitMinorUnits": "5000"
+        }
+      }
+    },
+    {
+      "name": "message",
+      "input": {
+        "activityId": "act-vector-003",
+        "agentId": "agent-vector-1",
+        "occurredAt": "2026-01-03T08:00:00Z",
+        "actionType": "message",
+        "action": "notify-operator",
+        "textSnippet": "hello operator",
+        "metadata": {
+          "channel": "email",
+          "note": null,
+          "count": 3,
+          "ratio": 1.5,
+          "urgent": false
+        },
+        "policyContext": { "policyVersion": "bond-policy-v1" }
+      },
+      "expected": {
+        "activityId": "act-vector-003",
+        "agentId": "agent-vector-1",
+        "occurredAt": "2026-01-03T08:00:00Z",
+        "actionType": "message",
+        "action": "notify-operator",
+        "textSnippet": "hello operator",
+        "metadata": {
+          "channel": "email",
+          "note": null,
+          "count": 3,
+          "ratio": 1.5,
+          "urgent": false
+        },
+        "policyContext": { "policyVersion": "bond-policy-v1" }
+      }
+    },
+    {
+      "name": "policy-decision",
+      "input": {
+        "activityId": "act-vector-004",
+        "agentId": "agent-vector-1",
+        "occurredAt": "2026-01-04T00:00:00.000Z",
+        "actionType": "policy-decision",
+        "action": "approve-refund",
+        "reporterSeverity": "medium",
+        "policyContext": {
+          "policyVersion": "bond-policy-v1",
+          "denylistedActions": ["self-transfer"]
+        }
+      },
+      "expected": {
+        "activityId": "act-vector-004",
+        "agentId": "agent-vector-1",
+        "occurredAt": "2026-01-04T00:00:00.000Z",
+        "actionType": "policy-decision",
+        "action": "approve-refund",
+        "reporterSeverity": "medium",
+        "policyContext": {
+          "policyVersion": "bond-policy-v1",
+          "denylistedActions": ["self-transfer"]
+        }
+      }
+    },
+    {
+      "name": "auth",
+      "input": {
+        "activityId": "act-vector-005",
+        "agentId": "agent-vector-1",
+        "occurredAt": "2026-01-05T00:00:00.000Z",
+        "actionType": "auth",
+        "action": "refresh-session",
+        "metadata": { "method": "oauth" },
+        "policyContext": { "policyVersion": "bond-policy-v1" }
+      },
+      "expected": {
+        "activityId": "act-vector-005",
+        "agentId": "agent-vector-1",
+        "occurredAt": "2026-01-05T00:00:00.000Z",
+        "actionType": "auth",
+        "action": "refresh-session",
+        "metadata": { "method": "oauth" },
+        "policyContext": { "policyVersion": "bond-policy-v1" }
+      }
+    },
+    {
+      "name": "config-change",
+      "input": {
+        "activityId": "act-vector-006",
+        "agentId": "agent-vector-1",
+        "occurredAt": "2026-01-06T00:00:00.000Z",
+        "actionType": "config-change",
+        "action": "raise-limit",
+        "bytesOut": 128,
+        "policyContext": {
+          "policyVersion": "bond-policy-v1",
+          "declaredTools": ["transfers"],
+          "exfilThresholdBytes": 1024
+        }
+      },
+      "expected": {
+        "activityId": "act-vector-006",
+        "agentId": "agent-vector-1",
+        "occurredAt": "2026-01-06T00:00:00.000Z",
+        "actionType": "config-change",
+        "action": "raise-limit",
+        "bytesOut": 128,
+        "policyContext": {
+          "policyVersion": "bond-policy-v1",
+          "declaredTools": ["transfers"],
+          "exfilThresholdBytes": 1024
+        }
+      }
+    },
+    {
+      "name": "external-report",
+      "input": {
+        "activityId": "act-vector-007",
+        "agentId": "agent-vector-1",
+        "occurredAt": "2026-01-07T00:00:00.000Z",
+        "actionType": "external-report",
+        "action": "vendor-attestation",
+        "reporterSeverity": "low",
+        "policyContext": { "policyVersion": "bond-policy-v1" }
+      },
+      "expected": {
+        "activityId": "act-vector-007",
+        "agentId": "agent-vector-1",
+        "occurredAt": "2026-01-07T00:00:00.000Z",
+        "actionType": "external-report",
+        "action": "vendor-attestation",
+        "reporterSeverity": "low",
+        "policyContext": { "policyVersion": "bond-policy-v1" }
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "missing-action",
+      "description": "Empty action is rejected client-side.",
+      "input": {
+        "activityId": "act-vector-bad-1",
+        "agentId": "agent-vector-1",
+        "occurredAt": "2026-01-01T00:00:00.000Z",
+        "actionType": "message",
+        "action": "",
+        "policyContext": { "policyVersion": "bond-policy-v1" }
+      },
+      "expectedCode": "INVALID_ACTIVITY_INPUT"
+    },
+    {
+      "name": "unknown-action-type",
+      "description": "Action types outside the 7-value whitelist are rejected.",
+      "input": {
+        "activityId": "act-vector-bad-2",
+        "agentId": "agent-vector-1",
+        "occurredAt": "2026-01-01T00:00:00.000Z",
+        "actionType": "teleport",
+        "action": "move",
+        "policyContext": { "policyVersion": "bond-policy-v1" }
+      },
+      "expectedCode": "INVALID_ACTIVITY_INPUT"
+    },
+    {
+      "name": "missing-policy-version",
+      "description": "policyContext.policyVersion is required.",
+      "input": {
+        "activityId": "act-vector-bad-3",
+        "agentId": "agent-vector-1",
+        "occurredAt": "2026-01-01T00:00:00.000Z",
+        "actionType": "message",
+        "action": "hi",
+        "policyContext": { "policyVersion": "" }
+      },
+      "expectedCode": "INVALID_ACTIVITY_INPUT"
+    },
+    {
+      "name": "bad-timestamp",
+      "description": "Non-ISO occurredAt is rejected.",
+      "input": {
+        "activityId": "act-vector-bad-4",
+        "agentId": "agent-vector-1",
+        "occurredAt": "yesterday",
+        "actionType": "message",
+        "action": "hi",
+        "policyContext": { "policyVersion": "bond-policy-v1" }
+      },
+      "expectedCode": "INVALID_ACTIVITY_INPUT"
+    }
+  ]
+}
