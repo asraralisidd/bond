@@ -31,3 +31,11 @@ apps/web/dist/
 
 # Postgres data (local bind mounts)
 pgdata/
+
+# Python (SDK tests/build artifacts)
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/
