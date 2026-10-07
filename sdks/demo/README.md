@@ -1,5 +1,14 @@
 # BOND Agent Integration Demo
 
+This document covers two entry points sharing the same SDK-only
+integration boundary:
+
+- `demo.py` — deterministic custom-agent integration (Phase 16.4):
+  register → report → analyze → flags → status → verify.
+- `ai_agent_demo.py` — end-to-end AI agent security demo (Phase 17):
+  model → agent → SDK → API → risk → attestation → enforcement
+  (SIMULATED). See "AI agent demo" below.
+
 ## Purpose
 
 Demonstrates an external custom agent integrating with BOND through the
@@ -135,3 +144,44 @@ bond and claims no on-chain state.
 - Database errors — ensure Postgres is up and migrations applied.
 - Reruns are safe: registration reuses the existing agent; each run
   submits fresh activities (new UUIDs) producing new analyses.
+
+## AI agent demo (`ai_agent_demo.py`)
+
+An external AI-powered agent operating under BOND. BOND is not the
+model: a provider-neutral `ModelProvider` interface (`generate(prompt,
+context) -> ModelResponse`) supplies actions, and every model output
+passes through SDK `build_activity()` validation before submission.
+
+- **Scripted mode (default):** `BOND_DEMO_MODE=scripted` (or unset).
+  `ScriptedModelProvider` needs no key, no internet, no wallet.
+  Scenarios via `BOND_DEMO_SCENARIO=benign|risky`:
+  - benign: allowlisted `pay-vendor` under the spend limit → zero
+    findings expected ("No confirmed findings were returned").
+  - risky: denylisted `self-transfer` at 3x the spend limit →
+    `policy-denylist` (high/90) + `spend-limit-breach` (high/85)
+    plus the `undeclared-action` guard (high) firing on the
+    off-allowlist action — then attestation (2 demo attestors,
+    threshold 2) → quorum → `partial-slash` decision → enforcement
+    (SIMULATED) → release to WITHDRAWABLE where the state machine
+    permits.
+- **Live-model mode:** `BOND_DEMO_MODE=live-model` requires
+  `BOND_MODEL_PROVIDER` + `BOND_MODEL_API_KEY`, then refuses clearly:
+  no provider request/response format is verified in this
+  environment, so execution would be fabrication.
+- **Attestors:** deterministic per-run identities
+  (`ai-demo-attestor-{1,2}-<run>`), fresh 32-char secrets per run;
+  secrets travel only in the verdict header, never in output.
+- **Reruns:** agent/bond/attestor handles recovered or recreated as
+  the state machine permits; steps that cannot proceed (e.g. no live
+  bond after a prior withdraw) report `skipped`/`BLOCKED` with reasons
+  instead of failing or fabricating.
+- **SIMULATED boundary:** enforcement output is always labeled
+  `SIMULATED`; transaction references are adapter receipts, never
+  blockchain confirmations. No live Midnight claims anywhere.
+
+```bash
+export BOND_API_URL=http://localhost:4000
+export BOND_DEV_AUTH_TOKEN=dev-change-me
+BOND_DEMO_SCENARIO=benign python sdks/demo/ai_agent_demo.py
+BOND_DEMO_SCENARIO=risky python sdks/demo/ai_agent_demo.py
+```
