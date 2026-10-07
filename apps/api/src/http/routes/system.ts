@@ -23,6 +23,41 @@ import {
 import { getWorkerSnapshot } from "../../services/worker/registry.js";
 import type { WorkerSnapshot } from "../../services/worker/types.js";
 
+/**
+ * Secret-shaped content that must never reach the unauthenticated
+ * /ready projection: credential assignments, key material markers,
+ * PEM blocks, bearer tokens, and mnemonic/seed phrases. Ordinary
+ * operational text (constraint names, status words, ids) passes
+ * through untouched — only these shapes redact.
+ */
+const SECRET_SHAPES: readonly RegExp[] = [
+  // Multi-word secrets first: a mnemonic/seed phrase runs to end of
+  // line, and must not survive partial redaction by the rule below.
+  /(mnemonic|seed[ -]?phrase)\s*[:=]?\s*.+$/gi,
+  /[A-Za-z0-9_.-]*(password|passwd|secret|api[_-]?key|auth[_-]?token|bearer|mnemonic|seed[_-]?phrase)[A-Za-z0-9_.-]*\s*[:=]\s*\S+/gi,
+  /bearer\s+[A-Za-z0-9\-_.~+/=]+/gi,
+  /-----BEGIN [A-Z0-9 ]+-----/g,
+  /[a-z][a-z0-9+.-]*:\/\/[^/\s]*:[^/\s]*@/gi,
+];
+
+/**
+ * Scrubs a worker error message for public exposure. Full text stays
+ * in logs and the database for operator diagnostics; /ready carries
+ * only the scrubbed form. Pure and deterministic.
+ */
+export function sanitizePublicErrorMessage(
+  value: string | null,
+): string | null {
+  if (value === null) {
+    return null;
+  }
+  let scrubbed = value;
+  for (const pattern of SECRET_SHAPES) {
+    scrubbed = scrubbed.replace(pattern, "[redacted]");
+  }
+  return scrubbed;
+}
+
 /** Null when no runtime exists here; never throws (readiness must not fail on it). */
 function workerSnapshot(): {
   readonly enabled: boolean;
@@ -49,7 +84,7 @@ function workerSnapshot(): {
     draining: snapshot.phase === "DRAINING",
     lastPollAt: snapshot.stats.lastPollAt,
     activeJobs: snapshot.stats.activeJobs,
-    lastError: snapshot.stats.lastError,
+    lastError: sanitizePublicErrorMessage(snapshot.stats.lastError),
   };
 }
 
