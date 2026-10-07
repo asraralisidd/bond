@@ -7,6 +7,10 @@ import type { AgentStatus } from "@bond/shared-types";
 import { toAgentPrivateView } from "../dto.js";
 import { requireAuth, requireOperator } from "../auth.js";
 import {
+  requireOperatorOrGrant,
+  requireOperatorOrGrantContext,
+} from "../middleware/grant-auth.js";
+import {
   requireAgentCapability,
   requireAgentOrOperator,
   requireAuthContext,
@@ -30,11 +34,11 @@ export const agentsRouter = Router();
 
 agentsRouter.post(
   "/",
-  requireAuth,
+  requireOperatorOrGrant("agent:register"),
   rateLimitFor("mutation"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const auth = requireOperator(req);
+      const auth = requireOperatorOrGrantContext(req);
       const body = req.body as {
         platform?: string;
         agentType?: string;

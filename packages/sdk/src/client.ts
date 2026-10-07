@@ -34,6 +34,8 @@ import type { BuiltActivity } from "./activity.js";
 import type {
   AgentCredentialMetadata,
   AgentCredentialSecret,
+  SetupGrantMetadata,
+  SetupGrantSecret,
 } from "./agent.js";
 
 export type TokenProvider = () =>
@@ -335,6 +337,36 @@ export class BondClient {
   ): Promise<{ revoked: boolean; credentialId: string }> {
     return this.request<{ revoked: boolean; credentialId: string }>(
       `/api/v1/agents/${agentId}/credentials/${credentialId}`,
+      {
+        method: "DELETE",
+        body: reason === undefined ? undefined : JSON.stringify({ reason }),
+      },
+    ).then((r) => r.data);
+  }
+
+  /**
+   * Setup grants (OPERATOR ONLY). A grant authorizes exactly one setup
+   * operation and is consumed on use — it never becomes a session or
+   * credential. The raw secret appears only in the create result.
+   */
+  createSetupGrant(input: {
+    agentId?: string;
+    scopes: string[];
+    expiresAt?: string;
+  }): Promise<SetupGrantSecret> {
+    return this.post<SetupGrantSecret>("/api/v1/setup-grants", input);
+  }
+
+  listSetupGrants(): Promise<SetupGrantMetadata[]> {
+    return this.get<SetupGrantMetadata[]>("/api/v1/setup-grants");
+  }
+
+  revokeSetupGrant(
+    grantId: string,
+    reason?: string,
+  ): Promise<{ revoked: boolean; grantId: string }> {
+    return this.request<{ revoked: boolean; grantId: string }>(
+      `/api/v1/setup-grants/${grantId}`,
       {
         method: "DELETE",
         body: reason === undefined ? undefined : JSON.stringify({ reason }),

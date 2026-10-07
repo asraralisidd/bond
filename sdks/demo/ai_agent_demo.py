@@ -202,6 +202,11 @@ def _default_agent_client_factory(
     return BondAgentClient(BondClient(base_url=base_url, token=token))
 
 
+def _default_grant_client_factory(base_url: str, token: str) -> BondClient:
+    """Build a real grant-bearer transport. Replaceable in tests."""
+    return BondClient(base_url=base_url, token=token)
+
+
 class AIAgent:
     """External agent operating under BOND via the Python SDK only."""
 
@@ -213,11 +218,15 @@ class AIAgent:
         agent_client_factory: Callable[
             [str, str], BondAgentClient
         ] = _default_agent_client_factory,
+        grant_client_factory: Callable[
+            [str, str], BondClient
+        ] = _default_grant_client_factory,
     ) -> None:
         self._config = config
         self._client = client
         self._model = model
         self._agent_client_factory = agent_client_factory
+        self._grant_client_factory = grant_client_factory
 
     def run(self, out: TextIO = sys.stdout) -> dict[str, Any]:
         """Execute the end-to-end flow. Returns a safe summary dict."""
@@ -545,8 +554,16 @@ class AIAgent:
         emit(f"  {summary['release']}")
 
     def _register(self, external_ref: str) -> dict[str, Any]:
+        # Delegated setup: the operator mints a single-use registration
+        # grant; registration itself is performed presenting the grant
+        # bearer, never the operator token.
+        grant = self._client.create_setup_grant(scopes=["agent:register"])
+        grant_client = self._grant_client_factory(
+            self._config.api_url,
+            f"{grant['metadata']['grantId']}.{grant['secret']}",
+        )
         try:
-            return self._client.register_agent(
+            return grant_client.register_agent(
                 platform="bond-demo",
                 agent_type="custom",
                 capabilities=["demo-messaging", "demo-tool-use"],
@@ -566,6 +583,8 @@ class AIAgent:
                     ):
                         return row
             raise
+        finally:
+            grant_client.close()
 
 
 def _select_model(config: AIDemoConfig) -> ModelProvider:

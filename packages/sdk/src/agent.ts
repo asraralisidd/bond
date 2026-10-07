@@ -35,6 +35,24 @@ export interface AgentCredentialSecret {
   readonly secret: string;
 }
 
+export interface SetupGrantMetadata {
+  readonly grantId: string;
+  readonly operatorId: string;
+  readonly agentId: string | null;
+  readonly scopes: readonly string[];
+  readonly expiresAt: string;
+  readonly consumedAt: string | null;
+  readonly revokedAt: string | null;
+  readonly revocationReason: string | null;
+  readonly createdAt: string;
+}
+
+export interface SetupGrantSecret {
+  /** Raw secret: present ONLY in the create response. */
+  readonly metadata: SetupGrantMetadata;
+  readonly secret: string;
+}
+
 export class BondAgentClient {
   private readonly client: BondClient;
 

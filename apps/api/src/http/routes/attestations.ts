@@ -8,6 +8,12 @@ import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
 import type { AttestationVerdict } from "@bond/shared-types";
 import { requireAuth, requireOperator } from "../auth.js";
+import {
+  requireGrantAgentMatch,
+  requireOperatorOrGrant,
+  requireOperatorOrGrantContext,
+} from "../middleware/grant-auth.js";
+import { findRiskFlagById } from "../../db/stores/risk.js";
 import { rateLimitFor } from "../rate-limit/middleware.js";
 import { requireAttestor } from "../middleware/attestor-auth.js";
 import { ApiError } from "../errors.js";
@@ -63,11 +69,11 @@ attestorsRouter.post(
 
 attestationsRouter.post(
   "/",
-  requireAuth,
+  requireOperatorOrGrant("attestation:init"),
   rateLimitFor("attestation"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const auth = requireOperator(req);
+      const auth = requireOperatorOrGrantContext(req);
       const body = req.body as {
         flagId?: string;
         attestorIds?: string[];
@@ -82,6 +88,10 @@ attestationsRouter.post(
         );
       }
       await requireFlagOwnership(body.flagId, auth.operatorId);
+      if (auth.grant?.agentId) {
+        const flag = await findRiskFlagById(body.flagId);
+        requireGrantAgentMatch(auth, flag?.agent_id ?? null);
+      }
       const outcome = await runIdempotent({
         key: body.idempotencyKey,
         operatorId: auth.operatorId,

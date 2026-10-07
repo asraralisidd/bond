@@ -270,9 +270,12 @@ def test_method_coverage_paths_and_methods():
     client.consume_eligibility("e", "n")
     client.verify_agent("a")
     client.verify_eligibility("a", "v1")
-    assert len(routes) == 31
+    client.create_setup_grant(scopes=["agent:register"])
+    client.list_setup_grants()
+    client.revoke_setup_grant("grant_1")
+    assert len(routes) == 34
     methods = {method for method, _ in routes}
-    assert methods <= {"GET", "POST", "PATCH"}
+    assert methods <= {"GET", "POST", "PATCH", "DELETE"}
     urls = [url for _, url in routes]
     assert "https://api.example/api/v1/agents/a" in urls
     assert "https://api.example/health" in urls

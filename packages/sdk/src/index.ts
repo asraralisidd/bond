@@ -11,6 +11,8 @@ export { BondAgentClient } from "./agent.js";
 export type {
   AgentCredentialMetadata,
   AgentCredentialSecret,
+  SetupGrantMetadata,
+  SetupGrantSecret,
 } from "./agent.js";
 export type {
   ActivityType,

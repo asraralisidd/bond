@@ -367,6 +367,12 @@ describe("method coverage", () => {
       ["consumeEligibility", client.consumeEligibility("e", "n")],
       ["verifyAgent", client.verifyAgent("a")],
       ["verifyEligibility", client.verifyEligibility("a", "v1")],
+      [
+        "createSetupGrant",
+        client.createSetupGrant({ scopes: ["agent:register"] }),
+      ],
+      ["listSetupGrants", client.listSetupGrants()],
+      ["revokeSetupGrant", client.revokeSetupGrant("grant_1")],
     ];
     for (const [, promise] of calls) {
       await promise;
