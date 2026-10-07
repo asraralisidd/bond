@@ -36,6 +36,17 @@ services:
       API_PORT: 4000
       DATABASE_URL: postgresql://${POSTGRES_USER:-bond}:${POSTGRES_PASSWORD:-bond_dev_password_change_me}@db:5432/${POSTGRES_DB:-bond_dev}
       CORS_ORIGIN: http://localhost:5173
+      # Midnight configuration passthrough (Phase 14). Empty defaults
+      # preserve local SIMULATED behavior; production deployments set
+      # these explicitly (MIDNIGHT_NETWORK is required in production).
+      # No secrets here — endpoints and contract address are public.
+      MIDNIGHT_NETWORK: ${MIDNIGHT_NETWORK:-}
+      MIDNIGHT_INDEXER_HTTP: ${MIDNIGHT_INDEXER_HTTP:-}
+      MIDNIGHT_INDEXER_WS: ${MIDNIGHT_INDEXER_WS:-}
+      MIDNIGHT_NODE_URL: ${MIDNIGHT_NODE_URL:-}
+      PROOF_SERVER_URL: ${PROOF_SERVER_URL:-}
+      BOND_CONTRACT_ADDRESS: ${BOND_CONTRACT_ADDRESS:-}
+      BOND_ZK_ASSETS_PATH: ${BOND_ZK_ASSETS_PATH:-}
     ports:
       - "4000:4000"
 
