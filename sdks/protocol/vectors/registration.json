@@ -1,0 +1,106 @@
+{
+  "$schema": "bond-protocol-vectors-v1",
+  "category": "registration",
+  "description": "POST /api/v1/auth/../agents request payloads. Valid vectors assert exact wire JSON produced by both SDKs. Invalid vectors document deterministic server validation (INVALID_IDENTIFIER); runners assert the payloads serialize byte-identically in both SDKs without client-side mutation.",
+  "valid": [
+    {
+      "name": "normal-custom-registration",
+      "description": "Typical custom agent with capabilities.",
+      "input": {
+        "platform": "custom",
+        "agentType": "custom",
+        "capabilities": ["transfers", "messaging"],
+        "externalRef": "vector-agent-001"
+      },
+      "expected": {
+        "platform": "custom",
+        "agentType": "custom",
+        "capabilities": ["transfers", "messaging"],
+        "externalRef": "vector-agent-001"
+      }
+    },
+    {
+      "name": "minimal-coding-registration",
+      "description": "Minimal valid payload: empty capabilities allowed.",
+      "input": {
+        "platform": "langgraph",
+        "agentType": "coding",
+        "capabilities": [],
+        "externalRef": "vector-agent-002"
+      },
+      "expected": {
+        "platform": "langgraph",
+        "agentType": "coding",
+        "capabilities": [],
+        "externalRef": "vector-agent-002"
+      }
+    },
+    {
+      "name": "trading-registration",
+      "description": "All remaining whitelisted agentType values are covered across vectors.",
+      "input": {
+        "platform": "crewai",
+        "agentType": "trading",
+        "capabilities": ["quotes"],
+        "externalRef": "vector-agent-003"
+      },
+      "expected": {
+        "platform": "crewai",
+        "agentType": "trading",
+        "capabilities": ["quotes"],
+        "externalRef": "vector-agent-003"
+      }
+    },
+    {
+      "name": "conversational-workflow-registration",
+      "description": "Remaining agentType whitelist values.",
+      "input": {
+        "platform": "autogen",
+        "agentType": "conversational",
+        "capabilities": ["chat"],
+        "externalRef": "vector-agent-004"
+      },
+      "expected": {
+        "platform": "autogen",
+        "agentType": "conversational",
+        "capabilities": ["chat"],
+        "externalRef": "vector-agent-004"
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "empty-platform",
+      "description": "Server rejects empty platform (requireText).",
+      "input": {
+        "platform": "",
+        "agentType": "custom",
+        "capabilities": [],
+        "externalRef": "vector-agent-bad-1"
+      },
+      "expectedServerCode": "INVALID_IDENTIFIER"
+    },
+    {
+      "name": "unknown-agent-type",
+      "description": "Server rejects values outside the agentType whitelist.",
+      "input": {
+        "platform": "custom",
+        "agentType": "superintelligence",
+        "capabilities": [],
+        "externalRef": "vector-agent-bad-2"
+      },
+      "expectedServerCode": "INVALID_IDENTIFIER"
+    },
+    {
+      "name": "empty-capability-element",
+      "description": "Server rejects empty capability strings.",
+      "input": {
+        "platform": "custom",
+        "agentType": "custom",
+        "capabilities": [""],
+        "externalRef": "vector-agent-bad-3"
+      },
+      "expectedServerCode": "INVALID_IDENTIFIER"
+    }
+  ]
+}

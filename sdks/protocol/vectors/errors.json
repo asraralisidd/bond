@@ -1,0 +1,140 @@
+{
+  "$schema": "bond-protocol-vectors-v1",
+  "category": "errors",
+  "description": "Backend error responses mapped into SDK error classes. Each vector gives an HTTP status, optional headers, and response body (null body = unparseable response). Runners feed these through mocked transports and assert code/message/status/requestId/retryAfter. All values synthetic.",
+  "vectors": [
+    {
+      "name": "unauthorized",
+      "status": 401,
+      "headers": { "x-request-id": "req-vector-401" },
+      "body": {
+        "code": "UNAUTHORIZED",
+        "message": "Invalid or expired session",
+        "requestId": "req-vector-401"
+      },
+      "expected": {
+        "code": "UNAUTHORIZED",
+        "message": "Invalid or expired session",
+        "status": 401,
+        "requestId": "req-vector-401",
+        "retryAfter": null
+      }
+    },
+    {
+      "name": "forbidden",
+      "status": 403,
+      "headers": { "x-request-id": "req-vector-403" },
+      "body": {
+        "code": "FORBIDDEN",
+        "message": "Not your resource",
+        "requestId": "req-vector-403"
+      },
+      "expected": {
+        "code": "FORBIDDEN",
+        "message": "Not your resource",
+        "status": 403,
+        "requestId": "req-vector-403",
+        "retryAfter": null
+      }
+    },
+    {
+      "name": "not-found",
+      "status": 404,
+      "headers": { "x-request-id": "req-vector-404" },
+      "body": {
+        "code": "NOT_FOUND",
+        "message": "Agent not found",
+        "requestId": "req-vector-404"
+      },
+      "expected": {
+        "code": "NOT_FOUND",
+        "message": "Agent not found",
+        "status": 404,
+        "requestId": "req-vector-404",
+        "retryAfter": null
+      }
+    },
+    {
+      "name": "idempotency-conflict",
+      "status": 409,
+      "headers": { "x-request-id": "req-vector-409" },
+      "body": {
+        "code": "IDEMPOTENCY_CONFLICT",
+        "message": "Idempotency key already used for a different request",
+        "requestId": "req-vector-409"
+      },
+      "expected": {
+        "code": "IDEMPOTENCY_CONFLICT",
+        "message": "Idempotency key already used for a different request",
+        "status": 409,
+        "requestId": "req-vector-409",
+        "retryAfter": null
+      }
+    },
+    {
+      "name": "rate-limited-with-retry-after",
+      "status": 429,
+      "headers": { "x-request-id": "req-vector-429", "retry-after": "30" },
+      "body": {
+        "code": "RATE_LIMITED",
+        "message": "Too many requests; try again later",
+        "requestId": "req-vector-429"
+      },
+      "expected": {
+        "code": "RATE_LIMITED",
+        "message": "Too many requests; try again later",
+        "status": 429,
+        "requestId": "req-vector-429",
+        "retryAfter": 30
+      }
+    },
+    {
+      "name": "rate-limited-without-retry-after",
+      "status": 429,
+      "headers": { "x-request-id": "req-vector-429b" },
+      "body": {
+        "code": "RATE_LIMITED",
+        "message": "Too many requests; try again later",
+        "requestId": "req-vector-429b"
+      },
+      "expected": {
+        "code": "RATE_LIMITED",
+        "message": "Too many requests; try again later",
+        "status": 429,
+        "requestId": "req-vector-429b",
+        "retryAfter": null
+      }
+    },
+    {
+      "name": "internal-error",
+      "status": 500,
+      "headers": { "x-request-id": "req-vector-500" },
+      "body": {
+        "code": "INTERNAL_ERROR",
+        "message": "Internal error",
+        "requestId": "req-vector-500"
+      },
+      "expected": {
+        "code": "INTERNAL_ERROR",
+        "message": "Internal error",
+        "status": 500,
+        "requestId": "req-vector-500",
+        "retryAfter": null
+      }
+    },
+    {
+      "name": "unparseable-body",
+      "description": "Non-JSON error bodies degrade to UNKNOWN_ERROR with an HTTP-status message.",
+      "status": 502,
+      "headers": {},
+      "body": null,
+      "expected": {
+        "code": "UNKNOWN_ERROR",
+        "message": "HTTP 502",
+        "status": 502,
+        "requestId": null,
+        "retryAfter": null
+      }
+    }
+  ]
+}

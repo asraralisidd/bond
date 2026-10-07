@@ -1,0 +1,141 @@
+{
+  "$schema": "bond-protocol-vectors-v1",
+  "category": "envelopes",
+  "description": "Successful {data} responses. Runners feed `body` through mocked transports and assert the SDK unwraps exactly `expected` (= body.data). Field sets mirror the real API projections; values are synthetic.",
+  "vectors": [
+    {
+      "name": "agent",
+      "method": "GET",
+      "path": "/api/v1/agents/agent-vector-1",
+      "body": {
+        "data": {
+          "agentId": "agent-vector-1",
+          "platform": "custom",
+          "agentType": "custom",
+          "capabilities": ["transfers"],
+          "externalRef": "vector-agent-001",
+          "status": "REGISTERED",
+          "policyVersion": "bond-policy-v1",
+          "syncStatus": "in-sync"
+        }
+      },
+      "expected": {
+        "agentId": "agent-vector-1",
+        "platform": "custom",
+        "agentType": "custom",
+        "capabilities": ["transfers"],
+        "externalRef": "vector-agent-001",
+        "status": "REGISTERED",
+        "policyVersion": "bond-policy-v1",
+        "syncStatus": "in-sync"
+      }
+    },
+    {
+      "name": "risk-analysis",
+      "method": "POST",
+      "path": "/api/v1/risk/analyses",
+      "body": {
+        "data": {
+          "analysisId": "analysis-vector-1",
+          "flagIds": ["flag-vector-1"],
+          "score": {
+            "score": 0.42,
+            "severity": "medium",
+            "confidence": 0.7,
+            "factors": ["transfer-size"]
+          }
+        }
+      },
+      "expected": {
+        "analysisId": "analysis-vector-1",
+        "flagIds": ["flag-vector-1"],
+        "score": {
+          "score": 0.42,
+          "severity": "medium",
+          "confidence": 0.7,
+          "factors": ["transfer-size"]
+        }
+      }
+    },
+    {
+      "name": "risk-flags",
+      "method": "GET",
+      "path": "/api/v1/risk/flags?agentId=agent-vector-1",
+      "body": {
+        "data": [
+          {
+            "riskFlagId": "flag-vector-1",
+            "category": "transfer-anomaly",
+            "severity": "medium",
+            "confidence": 0.7,
+            "evidenceIds": ["ev-vector-1"],
+            "modelVersion": "risk-v1",
+            "status": "open"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "riskFlagId": "flag-vector-1",
+          "category": "transfer-anomaly",
+          "severity": "medium",
+          "confidence": 0.7,
+          "evidenceIds": ["ev-vector-1"],
+          "modelVersion": "risk-v1",
+          "status": "open"
+        }
+      ]
+    },
+    {
+      "name": "public-verification",
+      "method": "GET",
+      "path": "/api/v1/public/agents/agent-vector-1",
+      "body": {
+        "data": {
+          "verification": {
+            "agentId": "agent-vector-1",
+            "result": "caution",
+            "policyVersion": "bond-policy-v1",
+            "rulesVersion": "rules-v1",
+            "registrationStatus": "ACTIVE",
+            "bondStatus": "ACTIVE",
+            "reputationStanding": "good",
+            "slashCount": 0,
+            "asOf": "2026-01-01T00:00:00.000Z"
+          },
+          "bond": { "status": "ACTIVE" },
+          "reputation": {
+            "standing": "good",
+            "confirmedFlags": 0,
+            "partialSlashes": 0,
+            "fullSlashes": 0,
+            "resolvedWithRemediation": 0
+          },
+          "slashHistory": []
+        }
+      },
+      "expected": {
+        "verification": {
+          "agentId": "agent-vector-1",
+          "result": "caution",
+          "policyVersion": "bond-policy-v1",
+          "rulesVersion": "rules-v1",
+          "registrationStatus": "ACTIVE",
+          "bondStatus": "ACTIVE",
+          "reputationStanding": "good",
+          "slashCount": 0,
+          "asOf": "2026-01-01T00:00:00.000Z"
+        },
+        "bond": { "status": "ACTIVE" },
+        "reputation": {
+          "standing": "good",
+          "confirmedFlags": 0,
+          "partialSlashes": 0,
+          "fullSlashes": 0,
+          "resolvedWithRemediation": 0
+        },
+        "slashHistory": []
+      }
+    }
+  ]
+}
