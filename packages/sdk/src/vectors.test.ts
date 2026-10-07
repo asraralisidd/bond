@@ -10,10 +10,18 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { buildActivity } from "./activity.js";
-import type { ActivityInput } from "./activity.js";
+import { buildActivity, buildModelActivity } from "./activity.js";
+import type { ActivityInput, ActivityPolicyContext } from "./activity.js";
 import { BondClient } from "./client.js";
 import { BondApiError } from "./errors.js";
+import {
+  normalizeAnthropicUsage,
+  normalizeDeepSeekUsage,
+  normalizeGeminiUsage,
+  normalizeLocalUsage,
+  normalizeOpenAIUsage,
+} from "./providers/index.js";
+import type { NormalizedModelUsage } from "./providers/index.js";
 
 const VECTORS_DIR = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -38,6 +46,44 @@ interface ActivityFile {
   valid: { name: string; input: unknown; expected: unknown }[];
   invalid: { name: string; input: unknown; expectedCode: string }[];
 }
+
+interface UsageFile {
+  valid: {
+    name: string;
+    provider: string;
+    input: unknown;
+    expected: unknown;
+  }[];
+  invalid: {
+    name: string;
+    provider: string;
+    input: unknown;
+    expectedCode: string;
+  }[];
+  modelActivities: {
+    name: string;
+    input: {
+      agentId: string;
+      activityId?: string;
+      occurredAt: string;
+      action?: string;
+      policyContext: ActivityPolicyContext;
+      usage: NormalizedModelUsage;
+    };
+    expected: unknown;
+  }[];
+}
+
+const USAGE_NORMALIZERS: Record<
+  string,
+  (response: unknown) => NormalizedModelUsage
+> = {
+  openai: (response) => normalizeOpenAIUsage(response),
+  anthropic: (response) => normalizeAnthropicUsage(response),
+  gemini: (response) => normalizeGeminiUsage(response),
+  deepseek: (response) => normalizeDeepSeekUsage(response),
+  local: (response) => normalizeLocalUsage(response),
+};
 
 interface ErrorFile {
   vectors: {
@@ -248,6 +294,65 @@ describe("protocol vectors: envelopes", () => {
         data = await client.verifyAgent("agent-vector-1");
       }
       expect(JSON.parse(JSON.stringify(data))).toEqual(vector.expected);
+    });
+  }
+});
+
+describe("protocol vectors: usage", () => {
+  const file = loadVectors("usage.json") as UsageFile;
+
+  it("covers all five providers", () => {
+    const names = file.valid.map((v) => v.name).sort();
+    expect(names).toEqual([
+      "anthropic",
+      "deepseek",
+      "gemini",
+      "local",
+      "openai",
+    ]);
+  });
+
+  for (const vector of file.valid) {
+    it(`normalizes usage vector ${vector.name} exactly`, () => {
+      const normalizer = USAGE_NORMALIZERS[vector.provider];
+      expect(normalizer).toBeDefined();
+      const usage = normalizer(vector.input);
+      expect(JSON.parse(JSON.stringify(usage))).toEqual(vector.expected);
+    });
+  }
+
+  for (const vector of file.invalid) {
+    it(`rejects usage vector ${vector.name} deterministically`, () => {
+      let code: string | null = null;
+      try {
+        const normalizer = USAGE_NORMALIZERS[vector.provider];
+        normalizer(vector.input);
+      } catch (error) {
+        if (error instanceof BondApiError) {
+          code = error.code;
+        }
+      }
+      expect(code).toBe(vector.expectedCode);
+    });
+  }
+
+  for (const vector of file.modelActivities) {
+    it(`builds model activity vector ${vector.name} exactly`, () => {
+      const built = buildModelActivity(
+        vector.input.agentId,
+        vector.input.usage,
+        vector.input.policyContext,
+        {
+          ...(vector.input.action !== undefined
+            ? { action: vector.input.action }
+            : {}),
+          ...(vector.input.activityId !== undefined
+            ? { activityId: vector.input.activityId }
+            : {}),
+          occurredAt: vector.input.occurredAt,
+        },
+      );
+      expect(JSON.parse(JSON.stringify(built))).toEqual(vector.expected);
     });
   }
 });

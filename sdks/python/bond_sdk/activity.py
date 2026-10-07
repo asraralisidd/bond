@@ -218,3 +218,48 @@ def build_activity(
         policy_context=policy_context,
         **kwargs,  # type: ignore[arg-type]
     ).to_dict()
+
+
+def build_model_activity(
+    agent_id: str,
+    usage: Any,
+    policy_context: ActivityPolicyContext,
+    *,
+    action: str = "model-invocation",
+    activity_id: str | None = None,
+    occurred_at: str | None = None,
+) -> dict[str, object]:
+    """Build a model-call activity from normalized provider usage.
+
+    Accepts a :class:`providers.NormalizedModelUsage` (or any object
+    with the same attribute names). The call is represented as a
+    ``tool-call`` with fixed action ``model-invocation`` and no tool:
+    provider/model attribution (not tool identity) drives Phase 22
+    model/provider policy checks, so tool allowlists are unaffected.
+    The provider request id becomes the activity id only when the
+    caller does not supply one explicitly.
+    """
+    provider = getattr(usage, "provider", None)
+    if not isinstance(provider, str) or not provider.strip():
+        raise _invalid("Invalid model usage: provider must be provided")
+    resolved_activity_id = activity_id
+    if resolved_activity_id is None:
+        request_id = getattr(usage, "provider_request_id", None)
+        if isinstance(request_id, str) and request_id.strip():
+            resolved_activity_id = request_id.strip()
+    return ActivityInput(
+        agent_id=agent_id,
+        action_type="tool-call",
+        action=action,
+        policy_context=policy_context,
+        activity_id=resolved_activity_id,
+        occurred_at=occurred_at,
+        provider=provider.strip(),
+        model=getattr(usage, "model", None),
+        input_tokens=getattr(usage, "input_tokens", None),
+        output_tokens=getattr(usage, "output_tokens", None),
+        total_tokens=getattr(usage, "total_tokens", None),
+        estimated_cost_minor_units=getattr(
+            usage, "estimated_cost_minor_units", None
+        ),
+    ).to_dict()

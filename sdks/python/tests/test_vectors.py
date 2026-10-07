@@ -14,7 +14,19 @@ import httpx
 import pytest
 
 from bond_sdk import BondApiError, BondClient, build_activity
-from bond_sdk.activity import ActivityInput, ActivityPolicyContext
+from bond_sdk.activity import (
+    ActivityInput,
+    ActivityPolicyContext,
+    build_model_activity,
+)
+from bond_sdk.providers import (
+    NormalizedModelUsage,
+    normalize_anthropic_usage,
+    normalize_deepseek_usage,
+    normalize_gemini_usage,
+    normalize_local_usage,
+    normalize_openai_usage,
+)
 
 VECTORS_DIR = (
     Path(__file__).resolve().parent.parent.parent / "protocol" / "vectors"
@@ -211,3 +223,83 @@ def test_envelope_unwrap(vector):
     else:
         data = client.verify_agent("agent-vector-1")
     assert json.loads(json.dumps(data)) == vector["expected"]
+
+
+USAGE = load_vectors("usage.json")
+
+_USAGE_NORMALIZERS = {
+    "openai": normalize_openai_usage,
+    "anthropic": normalize_anthropic_usage,
+    "gemini": normalize_gemini_usage,
+    "deepseek": normalize_deepseek_usage,
+    "local": normalize_local_usage,
+}
+
+_USAGE_FIELDS = (
+    "provider",
+    "model",
+    "input_tokens",
+    "output_tokens",
+    "total_tokens",
+    "estimated_cost_minor_units",
+    "provider_request_id",
+)
+
+_CAMEL_USAGE_FIELDS = {
+    "provider": "provider",
+    "model": "model",
+    "inputTokens": "input_tokens",
+    "outputTokens": "output_tokens",
+    "totalTokens": "total_tokens",
+    "estimatedCostMinorUnits": "estimated_cost_minor_units",
+    "providerRequestId": "provider_request_id",
+}
+
+
+def usage_to_expected(usage):
+    """NormalizedModelUsage -> canonical camelCase dict (None kept)."""
+    return {
+        camel: getattr(usage, snake) for camel, snake in _CAMEL_USAGE_FIELDS.items()
+    }
+
+
+def test_usage_covers_all_five_providers():
+    names = sorted(v["name"] for v in USAGE["valid"])
+    assert names == ["anthropic", "deepseek", "gemini", "local", "openai"]
+
+
+@pytest.mark.parametrize("vector", USAGE["valid"], ids=lambda v: v["name"])
+def test_usage_normalizes_exactly(vector):
+    normalizer = _USAGE_NORMALIZERS[vector["provider"]]
+    usage = normalizer(vector["input"])
+    assert json.loads(json.dumps(usage_to_expected(usage))) == vector["expected"]
+
+
+@pytest.mark.parametrize("vector", USAGE["invalid"], ids=lambda v: v["name"])
+def test_usage_invalid_rejected(vector):
+    normalizer = _USAGE_NORMALIZERS[vector["provider"]]
+    with pytest.raises(BondApiError) as exc_info:
+        normalizer(vector["input"])
+    assert exc_info.value.code == vector["expectedCode"]
+
+
+@pytest.mark.parametrize(
+    "vector", USAGE["modelActivities"], ids=lambda v: v["name"]
+)
+def test_model_activity_builds_exactly(vector):
+    vector_input = vector["input"]
+    usage_kwargs = {
+        snake: vector_input["usage"][camel]
+        for camel, snake in _CAMEL_USAGE_FIELDS.items()
+    }
+    payload = build_model_activity(
+        vector_input["agentId"],
+        NormalizedModelUsage(**usage_kwargs),
+        ActivityPolicyContext(
+            policy_version=vector_input["policyContext"]["policyVersion"]
+        ),
+        action=vector_input.get("action", "model-invocation"),
+        activity_id=vector_input.get("activityId"),
+        occurred_at=vector_input.get("occurredAt"),
+    )
+    assert json.loads(json.dumps(payload)) == vector["expected"]

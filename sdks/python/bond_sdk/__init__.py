@@ -11,6 +11,7 @@ from .activity import (
     ActivityType,
     ReporterSeverity,
     build_activity,
+    build_model_activity,
 )
 from .agent import BondAgentClient
 from .auth import TokenProvider, resolve_token
@@ -33,6 +34,7 @@ __all__ = [
     "ReporterSeverity",
     "TokenProvider",
     "build_activity",
+    "build_model_activity",
     "friendly_message",
     "is_secret_like_key",
     "new_idempotency_key",

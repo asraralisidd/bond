@@ -238,3 +238,51 @@ class LangGraphActivityAdapter:
             text_snippet=text,
             metadata=metadata,
         )
+
+    def from_llm_call(
+        self,
+        message: Any,
+        usage: Any,
+        *,
+        action: str = "model-invocation",
+        activity_id: str | None = None,
+        occurred_at: str | None = None,
+    ) -> ActivityInput:
+        """Map an LLM call (message + normalized usage) to an activity.
+
+        ``usage`` is a ``providers.NormalizedModelUsage`` (or any
+        object with the same attribute names). Provider request id
+        becomes the activity id when the caller supplies none. The
+        message content is summarized as the snippet — full prompts
+        and completions are never required and should not be passed.
+        """
+        content = _read_field(message, "content")
+        if content is None:
+            raise _invalid("Invalid LangGraph event: message has no content")
+        provider = getattr(usage, "provider", None)
+        if not isinstance(provider, str) or not provider.strip():
+            raise _invalid(
+                "Invalid LangGraph event: usage must carry a provider"
+            )
+        resolved_activity_id = activity_id
+        if resolved_activity_id is None:
+            request_id = getattr(usage, "provider_request_id", None)
+            if isinstance(request_id, str) and request_id.strip():
+                resolved_activity_id = request_id.strip()
+        return ActivityInput(
+            agent_id=self._agent_id,
+            action_type="tool-call",
+            action=_require_name(action, "action"),
+            policy_context=self._policy_context,
+            activity_id=resolved_activity_id,
+            occurred_at=occurred_at,
+            provider=provider.strip(),
+            model=getattr(usage, "model", None),
+            input_tokens=getattr(usage, "input_tokens", None),
+            output_tokens=getattr(usage, "output_tokens", None),
+            total_tokens=getattr(usage, "total_tokens", None),
+            estimated_cost_minor_units=getattr(
+                usage, "estimated_cost_minor_units", None
+            ),
+            text_snippet=_normalize_content(content),
+        )

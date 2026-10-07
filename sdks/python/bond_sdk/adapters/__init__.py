@@ -7,5 +7,13 @@ Callers submit through ``BondClient`` themselves.
 """
 
 from .langgraph import LangGraphActivityAdapter
+from .crewai import CrewAIActivityAdapter
+from .autogen import AutoGenActivityAdapter
+from .generic import GenericFrameworkAdapter
 
-__all__ = ["LangGraphActivityAdapter"]
+__all__ = [
+    "LangGraphActivityAdapter",
+    "CrewAIActivityAdapter",
+    "AutoGenActivityAdapter",
+    "GenericFrameworkAdapter",
+]
