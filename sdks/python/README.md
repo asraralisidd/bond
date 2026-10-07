@@ -132,3 +132,45 @@ See `Basic usage` above: authenticate out-of-band → `register_agent`
 once → per action, `build_activity` + `analyze_activity` → poll
 `list_flags` / `get_agent` for standing. Keep the token in process
 memory or a secret manager; never commit it, never log it.
+
+## LangGraph adapter (optional)
+
+`bond_sdk.adapters.langgraph.LangGraphActivityAdapter` maps
+LangGraph-style events to `ActivityInput` — nothing more. It holds
+mapping configuration only (agent id + policy context); it never
+touches the network, tokens, or credentials.
+
+```python
+from bond_sdk import BondClient
+from bond_sdk.activity import ActivityPolicyContext
+from bond_sdk.adapters import LangGraphActivityAdapter
+
+adapter = LangGraphActivityAdapter(
+    "agent-1",
+    ActivityPolicyContext(policy_version="bond-policy-v1"),
+)
+activity = adapter.from_tool_call(
+    "transfers", {"vendor": "acme"}
+)  # ActivityInput
+result = client.analyze_activity("agent-1", activity.to_dict())
+```
+
+Mappers: `from_message` (text / text-block content → `message`),
+`from_tool_call` (name/args → `tool-call`, scalar args only),
+`from_node_output` (text or scalar mapping → `message` or
+`policy-decision`, action namespaced `langgraph:<node>`). Unknown
+shapes raise `BondApiError(INVALID_ACTIVITY_INPUT)` — never silently
+converted. The caller submits through `BondClient`; the adapter
+performs no I/O.
+
+Installation: the adapter is duck-typed and imports without LangGraph
+installed. No `bond-sdk[langgraph]` version is declared yet —
+[VERIFY-LANGGRAPH]: no LangGraph version has been verified in this
+environment, so no compatibility claim is made. Install LangGraph
+separately at a version you have verified if you need its runtime.
+
+What it does NOT do: no HTTP, no database, no Risk Engine / Attestor /
+Midnight imports, no wallet or key handling, no credential storage, no
+blockchain submission, no bond creation, no protocol expansion.
+Address↔key ownership is unproven (as everywhere in BOND); sessions
+bind the signing key only.
