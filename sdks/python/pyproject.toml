@@ -17,6 +17,13 @@ dependencies = [
 test = [
   "pytest>=8",
 ]
+# Optional framework adapters. The core SDK never imports these;
+# adapter modules are duck-typed and importable without them.
+# [VERIFY-LANGGRAPH]: no LangGraph version has been verified in this
+# environment (not installed, no live wallet/network). Declare only a
+# lower bound once a version is exercised against these tests; until
+# then install "langgraph" separately at your own verified version.
+# langgraph = ["langgraph>=0.2"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["bond_sdk"]
