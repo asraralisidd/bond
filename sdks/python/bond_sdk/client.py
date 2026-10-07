@@ -12,9 +12,9 @@ callers decide, using ``BondApiError.retry_after`` on 429s.
 
 Agent-integration operations (register/report/status/verify) and
 operator/wallet operations (sessions, bonds, transactions, attestations,
-eligibility) share one client because BOND authentication is currently
-operator-scoped — there are no per-agent credentials. The docstrings
-mark which operations an external agent typically uses.
+eligibility, credentials, setup grants) share one client. Operator
+sessions, agent credentials, and setup grants are distinct principals;
+the docstrings mark which operations an external agent typically uses.
 """
 
 from __future__ import annotations
@@ -332,6 +332,30 @@ class BondClient:
             {"reason": reason},
         )
 
+    def create_setup_grant(
+        self,
+        scopes: list[str],
+        agent_id: str | None = None,
+        expires_at: str | None = None,
+    ) -> Any:
+        """Create a single-use setup grant (OPERATOR ONLY; secret once)."""
+        return self._post(
+            "/api/v1/setup-grants",
+            {"agentId": agent_id, "scopes": scopes, "expiresAt": expires_at},
+        )
+
+    def list_setup_grants(self) -> Any:
+        """List grant metadata (OPERATOR ONLY; never secrets)."""
+        return self._get("/api/v1/setup-grants")
+
+    def revoke_setup_grant(
+        self, grant_id: str, reason: str | None = None
+    ) -> Any:
+        """Revoke a grant (OPERATOR ONLY)."""
+        return self._delete(
+            f"/api/v1/setup-grants/{grant_id}", {"reason": reason}
+        )
+
     # -- Bonds ------------------------------------------------------------
 
     def create_bond(self, *, agent_id: str, commitment_minor_units: str) -> Any:
@@ -411,6 +435,25 @@ class BondClient:
 
     def get_flag(self, flag_id: str) -> Any:
         return self._get(f"/api/v1/risk/flags/{flag_id}")
+
+    def list_events(
+        self,
+        limit: int | None = None,
+        cursor: str | None = None,
+        event_type: str | None = None,
+    ) -> Any:
+        """Poll the authorization-scoped event feed."""
+        params: dict[str, str] = {}
+        if limit is not None:
+            params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
+        if event_type is not None:
+            params["type"] = event_type
+        query = "&".join(
+            f"{key}={quote(value, safe='')}" for key, value in params.items()
+        )
+        return self._get(f"/api/v1/events{('?' + query) if query else ''}")
 
     # -- Attestors / attestations ---------------------------------------------
     # Operator- and attestor-scoped; included for surface parity. External

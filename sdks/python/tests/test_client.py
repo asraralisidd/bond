@@ -270,9 +270,12 @@ def test_method_coverage_paths_and_methods():
     client.consume_eligibility("e", "n")
     client.verify_agent("a")
     client.verify_eligibility("a", "v1")
-    assert len(routes) == 31
+    client.create_setup_grant(scopes=["agent:register"])
+    client.list_setup_grants()
+    client.revoke_setup_grant("grant_1")
+    assert len(routes) == 34
     methods = {method for method, _ in routes}
-    assert methods <= {"GET", "POST", "PATCH"}
+    assert methods <= {"GET", "POST", "PATCH", "DELETE"}
     urls = [url for _, url in routes]
     assert "https://api.example/api/v1/agents/a" in urls
     assert "https://api.example/health" in urls
@@ -290,3 +293,18 @@ def test_attestor_secret_header_only():
     assert seen[0].headers["X-Attestor-Secret"] == "shh-secret"
     assert "shh-secret" not in seen[0].content.decode()
     assert "Authorization" not in seen[0].headers
+
+
+def test_list_events_query_building():
+    client, seen = make_client(
+        lambda req: json_response(200, {"data": {"events": [], "nextCursor": None}})
+    )
+    page = client.list_events(limit=10, cursor="abc123", event_type="RISK_FLAG_RAISED")
+    assert page == {"events": [], "nextCursor": None}
+    assert (
+        str(seen[0].url)
+        == "https://api.example/api/v1/events?limit=10&cursor=abc123&type=RISK_FLAG_RAISED"
+    )
+    bare = client.list_events()
+    assert bare == {"events": [], "nextCursor": None}
+    assert str(seen[1].url) == "https://api.example/api/v1/events"

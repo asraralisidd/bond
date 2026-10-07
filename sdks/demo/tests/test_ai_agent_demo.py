@@ -27,6 +27,13 @@ class StubClient:
         self.calls = []
         self.token = None
 
+    def create_setup_grant(self, scopes, **kwargs):
+        self.calls.append(("create_setup_grant", tuple(scopes)))
+        return {
+            "metadata": {"grantId": "grant-ai-1", "scopes": list(scopes)},
+            "secret": "grant-secret-xyz",
+        }
+
     def health(self):
         self.calls.append("health")
         return {"status": "ok"}
@@ -48,6 +55,9 @@ class StubClient:
             "status": "REGISTERED",
             "externalRef": kwargs["external_ref"],
         }
+
+    def close(self):
+        self.calls.append("close")
 
     def create_agent_credential(self, agent_id, **kwargs):
         self.calls.append("create_agent_credential")
@@ -252,6 +262,7 @@ def test_risky_flow_end_to_end_offline():
         client,
         ScriptedModelProvider("risky"),
         agent_client_factory=factory,
+        grant_client_factory=lambda base_url, token: StubClient(),
     ).run(out=out)
     assert summary["agentId"] == "agent-ai-1"
     assert summary["credentialId"] == "cred-ai-1"
@@ -278,6 +289,10 @@ def test_risky_flow_end_to_end_offline():
     ]
     assert "analyze_activity" not in operator_verbs
     assert ("revoke_agent_credential", "cred-ai-1") in client.calls
+    # Delegated setup: the operator minted a registration grant and the
+    # registration itself ran outside the operator client.
+    assert ("create_setup_grant", ("agent:register",)) in client.calls
+    assert "register_agent" not in operator_verbs
     text = out.getvalue()
     for marker in (
         "BOND AI AGENT SECURITY DEMO",
@@ -319,6 +334,7 @@ def test_benign_flow_zero_flags():
         BenignClient(),
         ScriptedModelProvider("benign"),
         agent_client_factory=lambda base_url, token: BenignClient(),
+        grant_client_factory=lambda base_url, token: BenignClient(),
     ).run(out=out)
     assert summary["flags"] == []
     assert summary["credentialRevoked"] is True
@@ -334,6 +350,7 @@ def test_attestation_submission_uses_sdk_only():
         client,
         ScriptedModelProvider("risky"),
         agent_client_factory=lambda base_url, token: agent_stub,
+        grant_client_factory=lambda base_url, token: StubClient(),
     ).run(out=io.StringIO())
     verbs = [c if isinstance(c, str) else c[0] for c in client.calls]
     assert "request_attestation" in verbs
@@ -353,6 +370,7 @@ def test_credential_revoked_even_on_failure():
             client,
             ScriptedModelProvider("risky"),
             agent_client_factory=lambda base_url, token: FailingAgentClient(),
+            grant_client_factory=lambda base_url, token: StubClient(),
         ).run(out=io.StringIO())
     assert ("revoke_agent_credential", "cred-ai-1") in client.calls
 

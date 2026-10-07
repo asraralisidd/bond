@@ -11,6 +11,8 @@ export { BondAgentClient } from "./agent.js";
 export type {
   AgentCredentialMetadata,
   AgentCredentialSecret,
+  SetupGrantMetadata,
+  SetupGrantSecret,
 } from "./agent.js";
 export type {
   ActivityType,
@@ -42,4 +44,6 @@ export type {
   PublicEligibilityView,
   HealthView,
   ReadyView,
+  EventFeedItem,
+  EventFeedPage,
 } from "./types.js";

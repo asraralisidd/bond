@@ -14,10 +14,12 @@ import { timeoutMiddleware } from "./http/middleware/timeout.js";
 import { authRouter } from "./http/routes/auth.js";
 import { agentsRouter } from "./http/routes/agents.js";
 import { agentCredentialsRouter } from "./http/routes/agent-credentials.js";
+import { setupGrantsRouter } from "./http/routes/setup-grants.js";
 import { bondsRouter } from "./http/routes/bonds.js";
 import { transactionsRouter } from "./http/routes/transactions.js";
 import { riskRouter } from "./http/routes/risk.js";
 import { eligibilityRouter } from "./http/routes/eligibility.js";
+import { eventsRouter } from "./http/routes/events.js";
 import { publicRouter } from "./http/routes/public.js";
 import { readyHandler } from "./http/routes/system.js";
 import {
@@ -145,9 +147,11 @@ export function createApp(): express.Express {
   app.use("/api/v1/transactions", transactionsRouter);
   app.use("/api/v1/risk", riskRouter);
   app.use("/api/v1/eligibility", eligibilityRouter);
+  app.use("/api/v1/events", eventsRouter);
   app.use("/api/v1/public", publicRouter);
   app.use("/api/v1/attestations", attestationsRouter);
   app.use("/api/v1/attestors", attestorsRouter);
+  app.use("/api/v1/setup-grants", setupGrantsRouter);
 
   // 6. JSON 404 for everything unmatched (never Express HTML).
   app.use(notFoundHandler);

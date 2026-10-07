@@ -367,6 +367,12 @@ describe("method coverage", () => {
       ["consumeEligibility", client.consumeEligibility("e", "n")],
       ["verifyAgent", client.verifyAgent("a")],
       ["verifyEligibility", client.verifyEligibility("a", "v1")],
+      [
+        "createSetupGrant",
+        client.createSetupGrant({ scopes: ["agent:register"] }),
+      ],
+      ["listSetupGrants", client.listSetupGrants()],
+      ["revokeSetupGrant", client.revokeSetupGrant("grant_1")],
     ];
     for (const [, promise] of calls) {
       await promise;
@@ -393,5 +399,24 @@ describe("method coverage", () => {
     const headers = seen[0]?.init.headers as Record<string, string>;
     expect(headers["X-Attestor-Secret"]).toBe("shh-secret");
     expect(String(seen[0]?.init.body)).not.toContain("shh-secret");
+  });
+
+  it("builds event feed query strings without leaking filters", async () => {
+    const { fetchFn, seen } = mockFetch((_url, _init) =>
+      jsonResponse(200, { data: { events: [], nextCursor: null } }),
+    );
+    const client = new BondClient({ baseUrl: "https://api.example", fetchFn });
+    const page = await client.listEvents({
+      limit: 10,
+      cursor: "abc123",
+      type: "RISK_FLAG_RAISED",
+    });
+    expect(page).toEqual({ events: [], nextCursor: null });
+    expect(seen[0]?.url).toBe(
+      "https://api.example/api/v1/events?limit=10&cursor=abc123&type=RISK_FLAG_RAISED",
+    );
+    const bare = await client.listEvents();
+    expect(bare).toEqual({ events: [], nextCursor: null });
+    expect(seen[1]?.url).toBe("https://api.example/api/v1/events");
   });
 });

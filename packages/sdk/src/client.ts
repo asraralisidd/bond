@@ -19,6 +19,7 @@ import type {
   BondView,
   EligibilityProofView,
   EligibilityStatusView,
+  EventFeedPage,
   HealthView,
   PublicAgentVerification,
   PublicEligibilityView,
@@ -33,6 +34,8 @@ import type { BuiltActivity } from "./activity.js";
 import type {
   AgentCredentialMetadata,
   AgentCredentialSecret,
+  SetupGrantMetadata,
+  SetupGrantSecret,
 } from "./agent.js";
 
 export type TokenProvider = () =>
@@ -341,6 +344,36 @@ export class BondClient {
     ).then((r) => r.data);
   }
 
+  /**
+   * Setup grants (OPERATOR ONLY). A grant authorizes exactly one setup
+   * operation and is consumed on use — it never becomes a session or
+   * credential. The raw secret appears only in the create result.
+   */
+  createSetupGrant(input: {
+    agentId?: string;
+    scopes: string[];
+    expiresAt?: string;
+  }): Promise<SetupGrantSecret> {
+    return this.post<SetupGrantSecret>("/api/v1/setup-grants", input);
+  }
+
+  listSetupGrants(): Promise<SetupGrantMetadata[]> {
+    return this.get<SetupGrantMetadata[]>("/api/v1/setup-grants");
+  }
+
+  revokeSetupGrant(
+    grantId: string,
+    reason?: string,
+  ): Promise<{ revoked: boolean; grantId: string }> {
+    return this.request<{ revoked: boolean; grantId: string }>(
+      `/api/v1/setup-grants/${grantId}`,
+      {
+        method: "DELETE",
+        body: reason === undefined ? undefined : JSON.stringify({ reason }),
+      },
+    ).then((r) => r.data);
+  }
+
   createBond(input: {
     agentId: string;
     commitmentMinorUnits: string;
@@ -408,6 +441,27 @@ export class BondClient {
 
   getFlag(id: string): Promise<RiskFlagView> {
     return this.get<RiskFlagView>(`/api/v1/risk/flags/${id}`);
+  }
+
+  listEvents(input?: {
+    limit?: number;
+    cursor?: string;
+    type?: string;
+  }): Promise<EventFeedPage> {
+    const params = new URLSearchParams();
+    if (input?.limit !== undefined) {
+      params.set("limit", String(input.limit));
+    }
+    if (input?.cursor !== undefined) {
+      params.set("cursor", input.cursor);
+    }
+    if (input?.type !== undefined) {
+      params.set("type", input.type);
+    }
+    const query = params.toString();
+    return this.get<EventFeedPage>(
+      `/api/v1/events${query.length > 0 ? `?${query}` : ""}`,
+    );
   }
 
   registerAttestor(input: {

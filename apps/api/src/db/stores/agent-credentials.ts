@@ -105,6 +105,20 @@ export async function listAgentCredentials(
   return result.rows;
 }
 
+export async function countActiveAgentCredentials(
+  agentId: string,
+  client?: PoolClient,
+): Promise<number> {
+  const result = await query<{ count: string }>(
+    `SELECT COUNT(*) AS count FROM agent_credentials
+     WHERE agent_id = $1 AND status = 'ACTIVE'
+       AND (expires_at IS NULL OR expires_at > now())`,
+    [agentId],
+    client,
+  );
+  return Number(result.rows[0]?.count ?? 0);
+}
+
 export async function revokeAgentCredential(
   credentialId: string,
   reason: string | null,

@@ -34,6 +34,16 @@ export interface AuthContext {
     readonly credentialId: string;
     readonly capabilities: readonly string[];
   };
+  /**
+   * Present only when authorized via a consumed setup grant (Phase 19).
+   * A grant is single-use setup authority, never a session — operator
+   * sessions and agent credentials never carry this field.
+   */
+  readonly grant?: {
+    readonly grantId: string;
+    readonly scopes: readonly string[];
+    readonly agentId: string | null;
+  };
 }
 
 declare global {
@@ -118,6 +128,14 @@ export function requireOperator(req: Request): AuthContext {
     throw new ApiError(
       "FORBIDDEN",
       "Agent credentials cannot access operator routes",
+    );
+  }
+  if (req.auth.grant) {
+    // Setup grants authorize one setup operation only — never general
+    // operator access, even though they resolve to the issuing operator.
+    throw new ApiError(
+      "FORBIDDEN",
+      "Setup grants cannot access operator routes",
     );
   }
   return req.auth;

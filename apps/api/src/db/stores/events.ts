@@ -72,3 +72,66 @@ export async function listProtocolEventsByAgent(
   );
   return result.rows;
 }
+
+export interface EventPageRow extends ProtocolEventRow {
+  /** Full-precision epoch seconds for cursor positioning. */
+  readonly created_epoch: string;
+}
+
+export interface EventPageScope {
+  /** Single-agent scope (agent principal). */
+  readonly agentId?: string;
+  /** Operator scope: only events for agents this operator owns. */
+  readonly operatorId?: string;
+}
+
+/**
+ * Keyset page over protocol_events. Ordering is (created_at, id) —
+ * total and deterministic. Callers pass limit+1 and treat an extra
+ * row as the has-more signal. No OFFSET, ever.
+ */
+export async function listProtocolEventsPage(
+  scope: EventPageScope,
+  after: { createdEpoch: string; id: string } | null,
+  type: string | null,
+  limitPlusOne: number,
+  client?: PoolClient,
+): Promise<EventPageRow[]> {
+  const values: unknown[] = [];
+  const clauses: string[] = [];
+  if (scope.agentId !== undefined) {
+    values.push(scope.agentId);
+    clauses.push(`agent_id = $${values.length}`);
+  } else if (scope.operatorId !== undefined) {
+    values.push(scope.operatorId);
+    clauses.push(
+      `agent_id IN (SELECT id FROM agents WHERE operator_id = $${values.length})`,
+    );
+  } else {
+    throw new Error("listProtocolEventsPage requires a scope");
+  }
+  if (after !== null) {
+    values.push(after.createdEpoch, after.id);
+    clauses.push(
+      `(EXTRACT(EPOCH FROM created_at), id) > ($${values.length - 1}, $${values.length})`,
+    );
+  }
+  if (type !== null) {
+    values.push(type);
+    clauses.push(`type = $${values.length}`);
+  }
+  values.push(limitPlusOne);
+  const result = await query<EventPageRow>(
+    `SELECT id, type, agent_id, bond_id, tx_id, actor, policy_version,
+       request_id, payload,
+       to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
+       EXTRACT(EPOCH FROM created_at)::text AS created_epoch
+     FROM protocol_events
+     WHERE ${clauses.join(" AND ")}
+     ORDER BY created_at ASC, id ASC
+     LIMIT $${values.length}`,
+    values as (string | number)[],
+    client,
+  );
+  return result.rows;
+}

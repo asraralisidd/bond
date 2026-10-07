@@ -11,6 +11,7 @@ import { BondClient } from "./client.js";
 import type {
   AnalysisResult,
   AgentView,
+  EventFeedPage,
   PublicAgentVerification,
   RiskFlagView,
 } from "./types.js";
@@ -31,6 +32,24 @@ export interface AgentCredentialMetadata {
 export interface AgentCredentialSecret {
   /** Raw secret: present ONLY in create/rotate responses. */
   readonly metadata: AgentCredentialMetadata;
+  readonly secret: string;
+}
+
+export interface SetupGrantMetadata {
+  readonly grantId: string;
+  readonly operatorId: string;
+  readonly agentId: string | null;
+  readonly scopes: readonly string[];
+  readonly expiresAt: string;
+  readonly consumedAt: string | null;
+  readonly revokedAt: string | null;
+  readonly revocationReason: string | null;
+  readonly createdAt: string;
+}
+
+export interface SetupGrantSecret {
+  /** Raw secret: present ONLY in the create response. */
+  readonly metadata: SetupGrantMetadata;
   readonly secret: string;
 }
 
@@ -71,6 +90,14 @@ export class BondAgentClient {
 
   getAgent(id: string): Promise<AgentView> {
     return this.client.getAgent(id);
+  }
+
+  listEvents(input?: {
+    limit?: number;
+    cursor?: string;
+    type?: string;
+  }): Promise<EventFeedPage> {
+    return this.client.listEvents(input);
   }
 
   verifyAgent(id: string): Promise<PublicAgentVerification> {
