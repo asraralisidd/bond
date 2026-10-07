@@ -14,7 +14,7 @@
  */
 import type { RiskSeverity } from "@bond/shared-types";
 import type { RuleFinding } from "./rules.js";
-import { SCORING_MODEL_VERSION, SCORING_V2 } from "./versions.js";
+import { SCORING_MODEL_VERSION, SCORING_V2, SCORING_V3 } from "./versions.js";
 
 export const SEVERITY_POINTS: Readonly<Record<RiskSeverity, number>> = {
   low: 10,
@@ -169,5 +169,56 @@ export function scoreWithBehavioral(
     confidence,
     factors: [...v1Factors, ...behavioralFactors],
     scoringVersion: SCORING_V2,
+  };
+}
+
+/**
+ * Phase 22 scoring-v3. Same contract as scoring-v2: the incoming
+ * score (v1-only or v2-composed) is the floor, the policy sub-score
+ * competes, and capped breadth (+2 per extra policy finding, cap +8)
+ * rewards multiple distinct violations without unbounded inflation:
+ *
+ *   total = min(100, max(base, policy) + min(8, 2 × (n − 1)))
+ *
+ * Policy severities never exceed high (enforced by the evaluator),
+ * so v3 can never manufacture a CRITICAL on its own; a v1/v2
+ * CRITICAL passes through unchanged.
+ */
+export function scoreWithPolicy(
+  base: RiskScore | null,
+  policyFindings: readonly RuleFinding[],
+): RiskScore | null {
+  if (policyFindings.length === 0) {
+    return base;
+  }
+  const sub = scoreFindings(policyFindings);
+  const policyBase = sub === null ? 0 : sub.score;
+  const baseScore = base === null ? 0 : base.score;
+  const breadth = Math.min(8, 2 * (policyFindings.length - 1));
+  const total = Math.min(100, Math.max(baseScore, policyBase) + breadth);
+  const delta = Math.max(0, total - baseScore);
+  const baseFactors = base === null ? [] : base.factors;
+  const policyFactors: ScoreFactor[] = (sub?.factors ?? []).map(
+    (factor, index) => ({
+      ...factor,
+      contribution: index === 0 ? delta : 0,
+    }),
+  );
+  let severity: RiskSeverity = base === null ? "low" : base.severity;
+  let confidence = base === null ? 0 : base.confidence;
+  for (const item of policyFindings) {
+    if (SEVERITY_RANK[item.severity] > SEVERITY_RANK[severity]) {
+      severity = item.severity;
+    }
+    if (item.confidence > confidence) {
+      confidence = item.confidence;
+    }
+  }
+  return {
+    score: total,
+    severity,
+    confidence,
+    factors: [...baseFactors, ...policyFactors],
+    scoringVersion: SCORING_V3,
   };
 }

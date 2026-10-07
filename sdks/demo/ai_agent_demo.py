@@ -39,6 +39,7 @@ BENIGN_REF = "ai-demo-agent-benign-v1"
 RISKY_REF = "ai-demo-agent-risky-v1"
 BEHAVIORAL_REF = "ai-demo-agent-behavioral-v1"
 REPUTATION_REF = "ai-demo-agent-reputation-v1"
+POLICY_REF_PREFIX = "ai-demo-agent-policy"
 
 FIXED_OCCURRED_AT = "2026-01-01T00:00:00.000Z"
 BEHAVIORAL_BASE_AT = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -89,7 +90,7 @@ class ScriptedModelProvider:
     """
 
     def __init__(self, scenario: str) -> None:
-        if scenario not in ("benign", "risky", "behavioral", "reputation"):
+        if scenario not in ("benign", "risky", "behavioral", "reputation", "policy"):
             raise BondApiError(
                 "INVALID_IDENTIFIER",
                 f"Unknown demo scenario: {scenario}",
@@ -283,7 +284,15 @@ class AIAgent:
                 else (
                     BEHAVIORAL_REF
                     if self._config.scenario == "behavioral"
-                    else REPUTATION_REF
+                    else (
+                        REPUTATION_REF
+                        if self._config.scenario == "reputation"
+                        # Policy runs use a fresh agent per run: usage
+                        # windows accumulate server-side, so reusing an
+                        # agent would make step assertions history
+                        # dependent instead of deterministic.
+                        else f"{POLICY_REF_PREFIX}-{token_hex(4)}"
+                    )
                 )
             )
         )
@@ -322,6 +331,13 @@ class AIAgent:
 
             if self._config.scenario == "reputation":
                 self._run_reputation(emit, summary, agent_id, agent_client)
+                return summary
+
+            if self._config.scenario == "policy":
+                self._run_policy(emit, summary, agent_id, agent_client)
+                emit("")
+                emit("Enforcement:")
+                emit("  not-applicable (policy findings are advisory)")
                 return summary
 
             # 4-8. Model generates; SDK validates; API analyzes.
@@ -675,6 +691,182 @@ class AIAgent:
         emit("  Reputation is advisory trust intelligence and does not")
         emit("  directly authorize or execute enforcement.")
 
+    def _run_policy(
+        self,
+        emit: EmitFn,
+        summary: dict[str, Any],
+        agent_id: str,
+        agent_client: BondAgentClient,
+    ) -> None:
+        """Deterministic policy scenarios A–E (Phase 22, scripted only).
+
+        The operator installs one policy, then the agent submits:
+        A compliant, B disallowed model, C token overuse, D cost
+        overuse, E repeated compliant usage (policy rate limit plus
+        behavioral burst). Costs are adapter-reported estimates —
+        never provider billing. Enforcement is not executed.
+        """
+        created = self._client.create_agent_policy(
+            agent_id,
+            {
+                "allowedProviders": ["acme"],
+                "allowedModels": ["acme-small"],
+                "maxInputTokens": 100000,
+                "maxTotalTokens": 200000,
+                "maxCostMinorUnitsPerRequest": "500",
+                "maxRequestsPerWindow": 10,
+                "requestWindowSeconds": 3600,
+            },
+        )
+        summary["policyId"] = created["policyId"]
+        summary["policyVersion"] = created["version"]
+        emit("")
+        emit("Policy:")
+        emit(f"  id: {created['policyId']}")
+        emit(f"  version: {created['version']}")
+
+        base = {
+            "action": "pay-vendor",
+            "amount_minor_units": "100",
+            "provider": "acme",
+            "model": "acme-small",
+            "input_tokens": 1000,
+            "output_tokens": 1000,
+            "total_tokens": 2000,
+            "estimated_cost_minor_units": "10",
+        }
+        steps: list[dict[str, Any]] = [
+            {"name": "A-compliant", "expect": [], **dict(base)},
+            {
+                "name": "B-model",
+                "expect": ["policy-model-denied"],
+                **{**base, "model": "rival-giant"},
+            },
+            {
+                "name": "C-tokens",
+                "expect": ["policy-input-token-limit"],
+                **{
+                    **base,
+                    "input_tokens": 150000,
+                    "total_tokens": 151000,
+                },
+            },
+            {
+                "name": "D-cost",
+                "expect": ["policy-cost-limit"],
+                **{**base, "estimated_cost_minor_units": "800"},
+            },
+        ]
+        results: list[dict[str, Any]] = []
+        burst_seen = False
+
+        def submit(
+            label: str, params: dict[str, Any], index: int
+        ) -> dict[str, Any]:
+            nonlocal burst_seen
+            occurred = (
+                BEHAVIORAL_BASE_AT + timedelta(seconds=60 * index)
+            ).isoformat()
+            activity = build_activity(
+                agent_id=agent_id,
+                action_type="transfer",
+                action=params["action"],
+                policy_context=_policy(True),
+                amount_minor_units=params["amount_minor_units"],
+                provider=params.get("provider"),
+                model=params.get("model"),
+                input_tokens=params.get("input_tokens"),
+                output_tokens=params.get("output_tokens"),
+                total_tokens=params.get("total_tokens"),
+                estimated_cost_minor_units=params.get(
+                    "estimated_cost_minor_units"
+                ),
+                occurred_at=occurred,
+            )
+            outcome = agent_client.analyze_activity(agent_id, activity)
+            decision = outcome.get("policy") or {}
+            violations = [
+                str(v.get("ruleId"))
+                for v in (decision.get("violations") or [])
+                if isinstance(v, dict)
+            ]
+            for flag_id in outcome.get("flagIds") or []:
+                parts = str(flag_id).split("-")
+                rule = "-".join(parts[2:])
+                if rule == "activity-burst":
+                    burst_seen = True
+            emit(
+                f"  {label}: allowed={decision.get('allowed')} "
+                f"violations={','.join(violations) or 'none'}"
+            )
+            return {
+                "label": label,
+                "allowed": decision.get("allowed"),
+                "violations": violations,
+            }
+
+        emit("")
+        emit("Policy Sequence:")
+        for index, step in enumerate(steps):
+            result = submit(
+                step["name"],
+                {k: v for k, v in step.items() if k != "expect"},
+                index,
+            )
+            results.append(result)
+            expected = step["expect"]
+            if result["allowed"] == (len(expected) > 0):
+                raise BondApiError(
+                    "INVALID_ACTIVITY_INPUT",
+                    f"Policy step {step['name']}: expected violations "
+                    f"{expected}, got allowed={result['allowed']}.",
+                    0,
+                    None,
+                )
+            for rule_id in expected:
+                if rule_id not in result["violations"]:
+                    raise BondApiError(
+                        "INVALID_ACTIVITY_INPUT",
+                        f"Policy step {step['name']}: missing {rule_id}.",
+                        0,
+                        None,
+                    )
+        # Scenario E: eight more compliant transfers. Analyses 11+
+        # exceed the 10-request window (policy rate limit) and the
+        # behavioral burst threshold together.
+        for extra in range(8):
+            result = submit(
+                f"E-repeat-{extra + 1}", dict(base), len(steps) + extra
+            )
+            results.append(result)
+        final = results[-1]
+        if "policy-request-rate-limit" not in final["violations"]:
+            raise BondApiError(
+                "INVALID_ACTIVITY_INPUT",
+                "Policy scenario E produced no rate-limit violation.",
+                0,
+                None,
+            )
+        if not burst_seen:
+            raise BondApiError(
+                "INVALID_ACTIVITY_INPUT",
+                "Policy scenario E produced no behavioral burst.",
+                0,
+                None,
+            )
+        summary["policyScenarioResults"] = [
+            {
+                "label": r["label"],
+                "allowed": r["allowed"],
+                "violations": r["violations"],
+            }
+            for r in results
+        ]
+        summary["policyBurstSeen"] = burst_seen
+        emit("")
+        emit("Policy + Behavioral (scenario E):")
+        emit("  policy-request-rate-limit + activity-burst observed")
+
     def _issue_agent_credential(
         self, agent_id: str
     ) -> tuple[BondAgentClient, str]:
@@ -914,7 +1106,7 @@ def main(argv: list[str] | None = None) -> int:
     client: BondClient | None = None
     try:
         config = AIDemoConfig.from_env()
-        if config.scenario not in ("benign", "risky", "behavioral", "reputation"):
+        if config.scenario not in ("benign", "risky", "behavioral", "reputation", "policy"):
             raise BondApiError(
                 "INVALID_IDENTIFIER",
                 f"Unknown BOND_DEMO_SCENARIO: {config.scenario}.",

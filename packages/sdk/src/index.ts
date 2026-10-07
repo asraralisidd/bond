@@ -32,6 +32,8 @@ export type {
   WalletSignature,
   AgentView,
   AgentReputationView,
+  AgentPolicyInput,
+  AgentPolicyView,
   BondView,
   RiskScoreView,
   AnalysisResult,

@@ -195,14 +195,22 @@ export async function insertLedgerActivity(
     readonly amountMinorUnits?: string | null;
     readonly bytesOut?: number | null;
     readonly occurredAt: string;
+    readonly provider?: string | null;
+    readonly model?: string | null;
+    readonly inputTokens?: number | null;
+    readonly outputTokens?: number | null;
+    readonly totalTokens?: number | null;
+    readonly costMinorUnits?: string | null;
   },
   client?: PoolClient,
 ): Promise<void> {
   await query(
     `INSERT INTO agent_activity_ledger
        (analysis_id, agent_id, action_type, action, tool,
-        amount_minor_units, bytes_out, occurred_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        amount_minor_units, bytes_out, occurred_at,
+        provider, model, input_tokens, output_tokens,
+        total_tokens, cost_minor_units)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       ON CONFLICT (analysis_id) DO NOTHING`,
     [
       input.analysisId,
@@ -213,6 +221,12 @@ export async function insertLedgerActivity(
       input.amountMinorUnits ?? null,
       input.bytesOut ?? null,
       input.occurredAt,
+      input.provider ?? null,
+      input.model ?? null,
+      input.inputTokens ?? null,
+      input.outputTokens ?? null,
+      input.totalTokens ?? null,
+      input.costMinorUnits ?? null,
     ],
     client,
   );
@@ -269,6 +283,44 @@ export async function listRecentFlagsForBehavior(
     client,
   );
   return result.rows;
+}
+
+/**
+ * Exact usage aggregates over a server-time window (Phase 22).
+ * COUNT/SUM over the composite index — exact, not sampled: policy
+ * limits must not under-count under load. Windows are
+ * policy-bounded; callers pass one window per metric.
+ */
+export async function sumLedgerUsage(
+  agentId: string,
+  sinceIso: string,
+  client?: PoolClient,
+): Promise<{
+  readonly requestCount: number;
+  readonly totalTokens: string;
+  readonly totalCostMinorUnits: string;
+}> {
+  const result = await query<{
+    requests: string;
+    tokens: string | null;
+    cost: string | null;
+  }>(
+    `SELECT COUNT(*) AS requests,
+        COALESCE(SUM(total_tokens), 0)::text AS tokens,
+        COALESCE(SUM(cost_minor_units::numeric), 0)::text AS cost
+      FROM agent_activity_ledger
+      WHERE agent_id = $1 AND created_at > $2`,
+    [agentId, sinceIso],
+    client,
+  );
+  const row = result.rows[0];
+  return {
+    requestCount: Number(row?.requests ?? 0),
+    totalTokens: row?.tokens ?? "0",
+    // NUMERIC renders as e.g. "1050" or "1050.0" — integer inputs
+    // stay integral; normalize defensively for BigInt consumers.
+    totalCostMinorUnits: (row?.cost ?? "0").split(".")[0] as string,
+  };
 }
 
 /**

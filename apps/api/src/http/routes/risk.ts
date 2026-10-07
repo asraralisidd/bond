@@ -55,6 +55,7 @@ riskRouter.post(
           analysisId: outcome.analysisId,
           flagIds: outcome.flagIds,
           score: toScoreDto(outcome.score),
+          policy: outcome.policy,
         },
       });
     } catch (error) {

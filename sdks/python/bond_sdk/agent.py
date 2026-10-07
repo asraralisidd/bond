@@ -72,6 +72,10 @@ class BondAgentClient:
         """Fetch own reputation (requires reputation:read)."""
         return self._client.get_agent_reputation(agent_id, limit=limit)
 
+    def get_policy(self, agent_id: str) -> Any:
+        """Fetch own effective policy (requires agent:read; read-only)."""
+        return self._client.get_agent_policy(agent_id)
+
     def verify_agent(self, agent_id: str) -> Any:
         """Public verification (requires verification:read)."""
         return self._client.verify_agent(agent_id)

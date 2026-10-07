@@ -13,6 +13,16 @@
  *      events, agent status
  * A concurrent duplicate that passes the pre-check fails on the
  * analysis PK; unique violations map to REPLAYED_ACTIVITY as well.
+ *
+ * Phase 22 adds, inside the same transaction:
+ *   - persisted agent policy overlays the caller-supplied context
+ *     for governed fields (server authority; absent policy keeps
+ *     caller context, preserving legacy behavior),
+ *   - pure policy evaluation over usage windows aggregated from
+ *     the ledger (server created_at, bounded exact COUNT/SUM),
+ *   - policy findings scored under ruleset-v3/scoring-v3 and
+ *     persisted as ordinary flags (observed risk → existing
+ *     reputation hook; never verified outcomes).
  */
 import {
   analyzeActivity,
@@ -20,15 +30,27 @@ import {
   evaluateBehavioral,
   normalizeActivity,
   scoreWithBehavioral,
+  scoreWithPolicy,
   toEvidenceRef,
 } from "@bond/risk-engine";
 import type {
   BehavioralHistory,
   LedgerActivityEntry,
   RawActivityInput,
+  RuleFinding,
 } from "@bond/risk-engine";
-import { behavioralScorerVersionString } from "@bond/risk-engine";
-import { RULE_SET_V2, SCORING_V2 } from "@bond/risk-engine";
+import {
+  behavioralScorerVersionString,
+  policyScorerVersionString,
+} from "@bond/risk-engine";
+import {
+  RULE_SET_V2,
+  RULE_SET_V3,
+  SCORING_V2,
+  SCORING_V3,
+} from "@bond/risk-engine";
+import { evaluatePolicy, POLICY_VERSION } from "@bond/policy-engine";
+import type { PolicyDecision, PolicyUsageWindow } from "@bond/policy-engine";
 import { randomUUID } from "node:crypto";
 import {
   createRiskFlag,
@@ -40,9 +62,12 @@ import type { AgentStatus, RiskCategory, RiskFlag } from "@bond/shared-types";
 import { getAgentService } from "./agents.js";
 import { ApiError } from "../http/errors.js";
 import { withTransaction } from "../db/pool.js";
+import type { PoolClient } from "pg";
 import { updateAgentStatus } from "../db/stores/registry.js";
 import { recordEvent } from "./events.js";
 import { applyReputationEventService } from "./reputation.js";
+import { getActivePolicyForAnalysis, policyVersionLabel } from "./policies.js";
+import type { ResolvedAgentPolicy } from "@bond/policy-engine";
 import {
   findRiskAnalysisById,
   insertEvidenceDescriptor,
@@ -52,6 +77,7 @@ import {
   listLedgerWindow,
   listRecentFlagsForBehavior,
   purgeOldLedgerEntries,
+  sumLedgerUsage,
 } from "../db/stores/risk.js";
 
 /** Hard bound on every behavioral history load. */
@@ -76,9 +102,129 @@ function isUniqueViolation(error: unknown): boolean {
   );
 }
 
+/**
+ * Overlays persisted policy fields onto the caller-supplied context.
+ * Persisted allowlists/caps win when set; denies are monotonic (a
+ * client cannot un-deny what policy forbids):
+ * - allowedActions: persisted allow, else client minus persisted denies
+ * - declaredTools: persisted allow, else client minus persisted denies
+ *   (empty-declared fallback when the client declares nothing: with
+ *   an active policy, tool use must be declared to be evaluated)
+ * - denylistedActions: union of persisted and client denies
+ * - spendLimit: persisted transfer cap, else client limit
+ * Returns the input unchanged when no persisted policy exists
+ * (legacy behavior preserved exactly).
+ */
+function withEffectivePolicyContext(
+  activity: Omit<RawActivityInput, "agentId">,
+  persisted: ResolvedAgentPolicy | null,
+): Omit<RawActivityInput, "agentId"> {
+  if (persisted === null) {
+    return activity;
+  }
+  const client = activity.policyContext;
+  return {
+    ...activity,
+    policyContext: {
+      ...client,
+      allowedActions:
+        persisted.allowedActions ??
+        subtractList(client.allowedActions, persisted.deniedActions),
+      declaredTools:
+        persisted.allowedTools ??
+        subtractList(client.declaredTools, persisted.deniedTools) ??
+        (persisted.deniedTools.length > 0 ? [] : client.declaredTools),
+      denylistedActions: unionLists(
+        persisted.deniedActions,
+        client.denylistedActions,
+      ),
+      spendLimitMinorUnits:
+        persisted.maxTransferMinorUnits ?? client.spendLimitMinorUnits,
+    },
+  };
+}
+
+function subtractList(
+  client: readonly string[] | undefined,
+  denied: readonly string[],
+): readonly string[] | undefined {
+  if (client === undefined) {
+    return undefined;
+  }
+  const deniedSet = new Set(denied);
+  return client.filter((entry) => !deniedSet.has(entry));
+}
+
+function unionLists(
+  persisted: readonly string[],
+  client: readonly string[] | undefined,
+): readonly string[] | undefined {
+  const merged = [...new Set([...persisted, ...(client ?? [])])];
+  return merged.length === 0 ? undefined : merged;
+}
+
 function toMs(value: unknown): number {
   const ms = Date.parse(String(value));
   return Number.isNaN(ms) ? 0 : ms;
+}
+
+const EMPTY_POLICY_USAGE: PolicyUsageWindow = {
+  requestCount: 0,
+  totalTokens: "0",
+  totalCostMinorUnits: "0",
+};
+
+/**
+ * Aggregates server-side usage over the policy-configured windows.
+ * One exact aggregate query per active window (indexed range scan
+ * on created_at); windows without configured limits are skipped.
+ * Counts/queries never use client timestamps.
+ */
+async function loadPolicyUsage(
+  agentId: string,
+  persisted: ResolvedAgentPolicy | null,
+  nowMs: number,
+  client: PoolClient,
+): Promise<PolicyUsageWindow> {
+  if (persisted === null) {
+    return EMPTY_POLICY_USAGE;
+  }
+  const since = (seconds: number): string =>
+    new Date(nowMs - seconds * 1000).toISOString();
+  const [requests, tokens, cost] = await Promise.all([
+    persisted.maxRequestsPerWindow !== null &&
+    persisted.requestWindowSeconds !== null
+      ? sumLedgerUsage(agentId, since(persisted.requestWindowSeconds), client)
+      : null,
+    persisted.maxTotalTokensPerWindow !== null &&
+    persisted.tokenWindowSeconds !== null
+      ? sumLedgerUsage(agentId, since(persisted.tokenWindowSeconds), client)
+      : null,
+    persisted.maxCostMinorUnitsPerWindow !== null &&
+    persisted.costWindowSeconds !== null
+      ? sumLedgerUsage(agentId, since(persisted.costWindowSeconds), client)
+      : null,
+  ]);
+  return {
+    requestCount: requests?.requestCount ?? 0,
+    totalTokens: tokens?.totalTokens ?? "0",
+    totalCostMinorUnits: cost?.totalCostMinorUnits ?? "0",
+  };
+}
+
+export interface PolicyDecisionDto {
+  readonly allowed: boolean;
+  readonly policyVersion: string;
+  readonly source: "agent-policy" | "none";
+  readonly violations: readonly {
+    readonly ruleId: string;
+    readonly severity: string;
+    readonly category: string;
+    readonly reasonCode: string;
+    readonly observed: string;
+    readonly limit: string;
+    readonly explanation: string;
+  }[];
 }
 
 export async function analyzeActivityService(
@@ -87,12 +233,22 @@ export async function analyzeActivityService(
   analysisId: string;
   flagIds: string[];
   score: unknown;
+  policy: PolicyDecisionDto;
 }> {
   const agent = await getAgentService(input.agentId, input.operatorId);
+  // Persisted policy (if any) governs: its fields override the
+  // caller-supplied context so agents cannot self-authorize by
+  // submitting permissive contexts. Absent policy keeps caller
+  // context — legacy behavior, unchanged.
+  const persistedPolicy = await getActivePolicyForAnalysis(input.agentId);
+  const effectiveActivity = withEffectivePolicyContext(
+    input.activity,
+    persistedPolicy,
+  );
   let result;
   try {
     result = analyzeActivity(
-      { ...input.activity, agentId: input.agentId },
+      { ...effectiveActivity, agentId: input.agentId },
       { requestId: input.requestId ?? undefined },
     );
   } catch (error) {
@@ -104,11 +260,11 @@ export async function analyzeActivityService(
     throw error;
   }
   // Pure engine execution happens OUTSIDE any database transaction:
-  // it needs no connection and must never hold one. Behavioral
-  // evaluation is equally pure — history arrives as data, loaded
-  // inside the transaction below.
+  // it needs no connection and must never hold one. Behavioral and
+  // policy evaluation are equally pure — history arrives as data,
+  // loaded inside the transaction below.
   const normalized = normalizeActivity({
-    ...input.activity,
+    ...effectiveActivity,
     agentId: input.agentId,
   });
   const evidence = deriveEvidence(normalized);
@@ -129,7 +285,12 @@ export async function analyzeActivityService(
     createdAtMs: nowMs,
   };
 
-  let outcome: { analysisId: string; flagIds: string[]; score: unknown };
+  let outcome: {
+    analysisId: string;
+    flagIds: string[];
+    score: unknown;
+    policy: PolicyDecisionDto;
+  };
   try {
     outcome = await withTransaction(async (client) => {
       const replay = await findRiskAnalysisById(result.analysisId, client);
@@ -175,15 +336,68 @@ export async function analyzeActivityService(
         result.findings.map((finding) => finding.category),
         nowMs,
       );
-      const finalScore = scoreWithBehavioral(result.score, behavioral);
+      const behavioralScore = scoreWithBehavioral(result.score, behavioral);
       const hasBehavioral = behavioral.length > 0;
+      // Phase 22: pure policy evaluation over server-aggregated
+      // usage windows (exact COUNT/SUM on created_at, bounded by
+      // policy-configured windows). No persisted policy → no
+      // evaluation (v1 rules already judged the caller context).
+      const policyLabel =
+        persistedPolicy === null
+          ? normalized.policyContext.policyVersion
+          : policyVersionLabel(persistedPolicy.version);
+      const policyUsage = await loadPolicyUsage(
+        input.agentId,
+        persistedPolicy,
+        nowMs,
+        client,
+      );
+      const decision: PolicyDecision = evaluatePolicy({
+        activity: {
+          provider: normalized.provider,
+          model: normalized.model,
+          inputTokens: normalized.inputTokens,
+          outputTokens: normalized.outputTokens,
+          totalTokens: normalized.totalTokens,
+          costMinorUnits: normalized.estimatedCostMinorUnits,
+        },
+        policy: persistedPolicy,
+        usage: policyUsage,
+        policyVersion: policyLabel,
+      });
+      const policyFindings: RuleFinding[] = decision.violations.map(
+        (violation) => ({
+          ruleId: violation.ruleId,
+          analyzerKind: "rule-based",
+          category: violation.category,
+          severity: violation.severity,
+          confidence: violation.confidence,
+          explanation: {
+            what: violation.explanation,
+            whyItMatters: `Agent policy ${decision.policyVersion} governs this operational constraint; exceeding it moves outside the authorized envelope.`,
+            ruleId: violation.ruleId,
+            ruleVersion: POLICY_VERSION,
+          },
+          evidence,
+        }),
+      );
+      const finalScore = scoreWithPolicy(behavioralScore, policyFindings);
+      const hasPolicy = policyFindings.length > 0;
       await insertRiskAnalysis(
         {
           id: result.analysisId,
           agentId: input.agentId,
           engineVersion: result.engineVersion,
-          rulesetVersion: hasBehavioral ? RULE_SET_V2 : result.ruleSetVersion,
-          scoringVersion: hasBehavioral ? SCORING_V2 : result.scoringVersion,
+          rulesetVersion: hasPolicy
+            ? RULE_SET_V3
+            : hasBehavioral
+              ? RULE_SET_V2
+              : result.ruleSetVersion,
+          scoringVersion: hasPolicy
+            ? SCORING_V3
+            : hasBehavioral
+              ? SCORING_V2
+              : result.scoringVersion,
           score: finalScore,
           requestId: input.requestId,
         },
@@ -201,8 +415,24 @@ export async function analyzeActivityService(
           modelVersion: behavioralScorerVersionString(),
         }),
       );
+      const policyFlags: RiskFlag[] = policyFindings.map((item) =>
+        createRiskFlag({
+          riskFlagId: parseRiskFlagId(`rf-${evidence.digest}-${item.ruleId}`),
+          agentId: parseAgentId(input.agentId),
+          category: item.category,
+          severity: item.severity,
+          confidence: item.confidence / 100,
+          evidenceRefs: [toEvidenceRef(evidence)],
+          detectedAt: normalized.occurredAt,
+          modelVersion: policyScorerVersionString(),
+        }),
+      );
       const flagIds: string[] = [];
-      for (const flag of [...result.flags, ...behavioralFlags]) {
+      for (const flag of [
+        ...result.flags,
+        ...behavioralFlags,
+        ...policyFlags,
+      ]) {
         for (const ref of flag.evidenceRefs) {
           await insertEvidenceDescriptor(
             {
@@ -272,9 +502,30 @@ export async function analyzeActivityService(
           amountMinorUnits: normalized.amountMinorUnits,
           bytesOut: normalized.bytesOut,
           occurredAt: normalized.occurredAt,
+          provider: normalized.provider,
+          model: normalized.model,
+          inputTokens: normalized.inputTokens,
+          outputTokens: normalized.outputTokens,
+          totalTokens: normalized.totalTokens,
+          costMinorUnits: normalized.estimatedCostMinorUnits,
         },
         client,
       );
+      if (decision.violations.length > 0) {
+        await recordEvent(
+          {
+            type: "POLICY_VIOLATION",
+            agentId: input.agentId,
+            actor: "system:policy-engine",
+            requestId: input.requestId,
+            payload: {
+              policyVersion: decision.policyVersion,
+              ruleIds: decision.violations.map((v) => v.ruleId),
+            },
+          },
+          client,
+        );
+      }
       if (flagIds.length > 0 && agent.status === "ACTIVE") {
         const next = transitionAgentStatus(
           agent.status as AgentStatus,
@@ -292,7 +543,25 @@ export async function analyzeActivityService(
           client,
         );
       }
-      return { analysisId: result.analysisId, flagIds, score: finalScore };
+      return {
+        analysisId: result.analysisId,
+        flagIds,
+        score: finalScore,
+        policy: {
+          allowed: decision.allowed,
+          policyVersion: decision.policyVersion,
+          source: persistedPolicy === null ? "none" : "agent-policy",
+          violations: decision.violations.map((violation) => ({
+            ruleId: violation.ruleId,
+            severity: violation.severity,
+            category: violation.category,
+            reasonCode: violation.reasonCode,
+            observed: violation.observed,
+            limit: violation.limit,
+            explanation: violation.explanation,
+          })),
+        } satisfies PolicyDecisionDto,
+      };
     });
   } catch (error) {
     if (error instanceof ApiError) {

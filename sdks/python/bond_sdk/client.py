@@ -281,6 +281,35 @@ class BondClient:
         """Fetch owned agent reputation (advisory trust intelligence)."""
         return self._get(f"/api/v1/agents/{agent_id}/reputation?limit={limit}")
 
+    def create_agent_policy(
+        self, agent_id: str, policy: dict[str, Any]
+    ) -> Any:
+        """Create an agent policy version (OPERATOR ONLY)."""
+        return self._post(
+            f"/api/v1/agents/{agent_id}/policy", {"policy": policy}
+        )
+
+    def get_agent_policy(self, agent_id: str) -> Any:
+        """Fetch the active agent policy."""
+        return self._get(f"/api/v1/agents/{agent_id}/policy")
+
+    def update_agent_policy(
+        self, agent_id: str, expected_version: int, policy: dict[str, Any]
+    ) -> Any:
+        """Amend policy by versioning (OPERATOR ONLY; 409 on stale)."""
+        return self._patch(
+            f"/api/v1/agents/{agent_id}/policy",
+            {"expectedVersion": expected_version, "policy": policy},
+        )
+
+    def list_agent_policy_history(
+        self, agent_id: str, limit: int = 20
+    ) -> Any:
+        """List policy versions, newest first."""
+        return self._get(
+            f"/api/v1/agents/{agent_id}/policy/history?limit={limit}"
+        )
+
     def register_agent(
         self,
         *,

@@ -6,6 +6,7 @@
     "paths": {
       "@bond/shared-types": ["./packages/shared-types/src/index.ts"],
       "@bond/risk-engine": ["./packages/risk-engine/src/index.ts"],
+      "@bond/policy-engine": ["./packages/policy-engine/src/index.ts"],
       "@bond/attestor": ["./packages/attestor/src/index.ts"],
       "@bond/contract": ["./packages/contract/src/index.ts"],
       "@bond/midnight-adapter": ["./packages/midnight-adapter/src/index.ts"],

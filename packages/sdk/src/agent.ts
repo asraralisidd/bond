@@ -10,6 +10,7 @@
 import { BondClient } from "./client.js";
 import type {
   AgentReputationView,
+  AgentPolicyView,
   AnalysisResult,
   AgentView,
   EventFeedPage,
@@ -96,6 +97,11 @@ export class BondAgentClient {
   /** Read the caller's own reputation (server enforces self-access). */
   getReputation(id: string, limit = 20): Promise<AgentReputationView> {
     return this.client.getAgentReputation(id, limit);
+  }
+
+  /** Read the caller's own effective policy (no mutation surface). */
+  getPolicy(id: string): Promise<AgentPolicyView> {
+    return this.client.getAgentPolicy(id);
   }
 
   listEvents(input?: {

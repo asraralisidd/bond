@@ -12,6 +12,8 @@
 import { BondApiError, parseRetryAfter } from "./errors.js";
 import type {
   AgentReputationView,
+  AgentPolicyInput,
+  AgentPolicyView,
   AgentView,
   AnalysisResult,
   ApiEnvelope,
@@ -291,6 +293,36 @@ export class BondClient {
   getAgentReputation(id: string, limit = 20): Promise<AgentReputationView> {
     return this.get<AgentReputationView>(
       `/api/v1/agents/${id}/reputation?limit=${limit}`,
+    );
+  }
+
+  createAgentPolicy(
+    id: string,
+    policy: AgentPolicyInput,
+  ): Promise<AgentPolicyView> {
+    return this.post<AgentPolicyView>(`/api/v1/agents/${id}/policy`, {
+      policy,
+    });
+  }
+
+  getAgentPolicy(id: string): Promise<AgentPolicyView> {
+    return this.get<AgentPolicyView>(`/api/v1/agents/${id}/policy`);
+  }
+
+  updateAgentPolicy(
+    id: string,
+    expectedVersion: number,
+    policy: AgentPolicyInput,
+  ): Promise<AgentPolicyView> {
+    return this.patch<AgentPolicyView>(`/api/v1/agents/${id}/policy`, {
+      expectedVersion,
+      policy,
+    });
+  }
+
+  listAgentPolicyHistory(id: string, limit = 20): Promise<AgentPolicyView[]> {
+    return this.get<AgentPolicyView[]>(
+      `/api/v1/agents/${id}/policy/history?limit=${limit}`,
     );
   }
 

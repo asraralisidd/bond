@@ -42,6 +42,24 @@ export function fingerprint(input: string): string {
 
 /** Stable activity key for dedup and deterministic ID derivation. */
 export function activityKey(activity: NormalizedActivity): string {
+  // Usage fields join the key only when reported: activities without
+  // usage data keep their historical keys (stable analysis/flag IDs).
+  const usage =
+    activity.provider === null &&
+    activity.model === null &&
+    activity.inputTokens === null &&
+    activity.outputTokens === null &&
+    activity.totalTokens === null &&
+    activity.estimatedCostMinorUnits === null
+      ? {}
+      : {
+          provider: activity.provider,
+          model: activity.model,
+          inputTokens: activity.inputTokens,
+          outputTokens: activity.outputTokens,
+          totalTokens: activity.totalTokens,
+          estimatedCostMinorUnits: activity.estimatedCostMinorUnits,
+        };
   return fingerprint(
     canonicalJson({
       activityId: activity.activityId,
@@ -55,6 +73,7 @@ export function activityKey(activity: NormalizedActivity): string {
       bytesOut: activity.bytesOut,
       textSnippet: activity.textSnippet,
       metadata: activity.metadata,
+      ...usage,
     }),
   );
 }
