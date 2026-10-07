@@ -221,6 +221,10 @@ class BondClient:
         data, _ = self._request("PATCH", path, json=payload)
         return data
 
+    def _delete(self, path: str, payload: Any = None) -> Any:
+        data, _ = self._request("DELETE", path, json=payload)
+        return data
+
     # -- Health ---------------------------------------------------------
 
     def health(self) -> Any:
@@ -294,6 +298,39 @@ class BondClient:
     def set_agent_status(self, agent_id: str, status: str) -> Any:
         """Machine-governed status transition (operator action)."""
         return self._patch(f"/api/v1/agents/{agent_id}/status", {"status": status})
+
+    def create_agent_credential(
+        self,
+        agent_id: str,
+        capabilities: list[str] | None = None,
+        expires_at: str | None = None,
+    ) -> Any:
+        """Create an agent credential (OPERATOR ONLY; secret returned once)."""
+        return self._post(
+            f"/api/v1/agents/{agent_id}/credentials",
+            {"capabilities": capabilities, "expiresAt": expires_at},
+        )
+
+    def list_agent_credentials(self, agent_id: str) -> Any:
+        """List credential metadata (OPERATOR ONLY; never secrets)."""
+        return self._get(f"/api/v1/agents/{agent_id}/credentials")
+
+    def rotate_agent_credential(
+        self, agent_id: str, credential_id: str
+    ) -> Any:
+        """Rotate a credential (OPERATOR ONLY; new secret returned once)."""
+        return self._post(
+            f"/api/v1/agents/{agent_id}/credentials/{credential_id}/rotate", {}
+        )
+
+    def revoke_agent_credential(
+        self, agent_id: str, credential_id: str, reason: str | None = None
+    ) -> Any:
+        """Revoke a credential (OPERATOR ONLY)."""
+        return self._delete(
+            f"/api/v1/agents/{agent_id}/credentials/{credential_id}",
+            {"reason": reason},
+        )
 
     # -- Bonds ------------------------------------------------------------
 

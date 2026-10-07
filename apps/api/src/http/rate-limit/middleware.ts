@@ -22,6 +22,7 @@ import { classifyRequest } from "./policies.js";
 import { rateLimitDeps } from "./registry.js";
 import type { RateLimitStore } from "./store.js";
 import {
+  agentKey,
   authAttemptKey,
   clientIp,
   operatorKey,
@@ -124,11 +125,14 @@ export function rateLimitFor(
       return;
     }
     const policy = resolved.config.policies[policyName];
+    const agentId = req.auth?.agent?.agentId;
     const operatorId = req.auth?.operatorId;
     const identity =
-      operatorId !== undefined && operatorId !== ""
-        ? operatorKey(operatorId)
-        : (keyFn?.(req) ?? publicKey(clientIp(req, resolved.config)));
+      agentId !== undefined && agentId !== ""
+        ? agentKey(agentId)
+        : operatorId !== undefined && operatorId !== ""
+          ? operatorKey(operatorId)
+          : (keyFn?.(req) ?? publicKey(clientIp(req, resolved.config)));
     const key = `${policyName}:${identity}`;
     const decision = resolved.store.checkAndConsume(key, policy, now());
     res.setHeader("X-RateLimit-Limit", String(decision.limit));

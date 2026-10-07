@@ -30,6 +30,10 @@ import type {
   WalletSignature,
 } from "./types.js";
 import type { BuiltActivity } from "./activity.js";
+import type {
+  AgentCredentialMetadata,
+  AgentCredentialSecret,
+} from "./agent.js";
 
 export type TokenProvider = () =>
   string | null | undefined | Promise<string | null | undefined>;
@@ -291,6 +295,50 @@ export class BondClient {
 
   setAgentStatus(id: string, status: string): Promise<AgentView> {
     return this.patch<AgentView>(`/api/v1/agents/${id}/status`, { status });
+  }
+
+  /**
+   * Credential management (OPERATOR ONLY — these routes reject agent
+   * principals). The raw secret appears only in create/rotate results.
+   */
+  createAgentCredential(
+    agentId: string,
+    input: { capabilities?: string[]; expiresAt?: string } = {},
+  ): Promise<AgentCredentialSecret> {
+    return this.post<AgentCredentialSecret>(
+      `/api/v1/agents/${agentId}/credentials`,
+      input,
+    );
+  }
+
+  listAgentCredentials(agentId: string): Promise<AgentCredentialMetadata[]> {
+    return this.get<AgentCredentialMetadata[]>(
+      `/api/v1/agents/${agentId}/credentials`,
+    );
+  }
+
+  rotateAgentCredential(
+    agentId: string,
+    credentialId: string,
+  ): Promise<AgentCredentialSecret> {
+    return this.post<AgentCredentialSecret>(
+      `/api/v1/agents/${agentId}/credentials/${credentialId}/rotate`,
+      {},
+    );
+  }
+
+  revokeAgentCredential(
+    agentId: string,
+    credentialId: string,
+    reason?: string,
+  ): Promise<{ revoked: boolean; credentialId: string }> {
+    return this.request<{ revoked: boolean; credentialId: string }>(
+      `/api/v1/agents/${agentId}/credentials/${credentialId}`,
+      {
+        method: "DELETE",
+        body: reason === undefined ? undefined : JSON.stringify({ reason }),
+      },
+    ).then((r) => r.data);
   }
 
   createBond(input: {

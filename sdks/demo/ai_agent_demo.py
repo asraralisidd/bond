@@ -22,6 +22,7 @@ from typing import Any, Callable, Protocol, TextIO
 
 from bond_sdk import (
     ActivityPolicyContext,
+    BondAgentClient,
     BondApiError,
     BondClient,
     build_activity,
@@ -194,6 +195,13 @@ def _policy(benign: bool) -> ActivityPolicyContext:
 EmitFn = Callable[[str], None]
 
 
+def _default_agent_client_factory(
+    base_url: str, token: str
+) -> BondAgentClient:
+    """Build a real agent transport. Replaceable in tests."""
+    return BondAgentClient(BondClient(base_url=base_url, token=token))
+
+
 class AIAgent:
     """External agent operating under BOND via the Python SDK only."""
 
@@ -202,10 +210,14 @@ class AIAgent:
         config: AIDemoConfig,
         client: BondClient,
         model: ModelProvider,
+        agent_client_factory: Callable[
+            [str, str], BondAgentClient
+        ] = _default_agent_client_factory,
     ) -> None:
         self._config = config
         self._client = client
         self._model = model
+        self._agent_client_factory = agent_client_factory
 
     def run(self, out: TextIO = sys.stdout) -> dict[str, Any]:
         """Execute the end-to-end flow. Returns a safe summary dict."""
@@ -246,92 +258,136 @@ class AIAgent:
         agent_id = agent["agentId"]
         summary["agentId"] = agent_id
 
-        emit("")
-        emit("Agent:")
-        emit(f"  ID: {agent_id}")
-        emit(f"  Type: {agent.get('agentType', 'custom')}")
-        emit("Model:")
-        emit(f"  Provider: {summary['model']}")
-        emit(f"  Mode: {summary['mode']}")
-        emit("")
-        emit("Scenario:")
-        emit(f"  {summary['scenario']}")
+        # Operator issues an agent-scoped credential; the agent acts
+        # through BondAgentClient from here on for agent-scoped reads
+        # and activity submission. Registration, bonds, and attestations
+        # stay on the operator client. The raw secret lives only in
+        # memory and is revoked at the end of the run.
+        agent_client, credential_id = self._issue_agent_credential(agent_id)
+        summary["credentialId"] = credential_id
 
-        # 4-8. Model generates; SDK validates; API analyzes.
-        response = self._model.generate(
-            "act under bond policy",
-            {"agentId": agent_id, "scenario": self._config.scenario},
+        try:
+            emit("")
+            emit("Agent:")
+            emit(f"  ID: {agent_id}")
+            emit(f"  Type: {agent.get('agentType', 'custom')}")
+            emit("Agent Credential:")
+            emit(f"  {summary['credentialId']} (revoked at end of run)")
+            emit("Model:")
+            emit(f"  Provider: {summary['model']}")
+            emit(f"  Mode: {summary['mode']}")
+            emit("")
+            emit("Scenario:")
+            emit(f"  {summary['scenario']}")
+
+            # 4-8. Model generates; SDK validates; API analyzes.
+            response = self._model.generate(
+                "act under bond policy",
+                {"agentId": agent_id, "scenario": self._config.scenario},
+            )
+            parameters = dict(response.parameters)
+            # activity_id intentionally left for the SDK to generate fresh per
+            # run: flag IDs derive deterministically from activity content,
+            # so reusing an ID across runs would collide server-side.
+            parameters.setdefault("occurred_at", FIXED_OCCURRED_AT)
+            activity = build_activity(
+                agent_id=agent_id,
+                action_type=response.action_type,  # type: ignore[arg-type]
+                action=response.action,
+                policy_context=_policy(self._config.scenario == "benign"),
+                **parameters,
+            )
+            outcome = agent_client.analyze_activity(agent_id, activity)
+            score = outcome.get("score") or {}
+            summary["analysisId"] = outcome.get("analysisId")
+            summary["score"] = score.get("score")
+            summary["flagIds"] = outcome.get("flagIds") or []
+
+            emit("")
+            emit("Activity:")
+            emit(f"  Type: {response.action_type}")
+            emit(f"  Action: {response.action}")
+            emit("")
+            emit("Risk:")
+            emit(f"  score: {summary['score']}")
+            emit(f"  flags: {len(summary['flagIds'])}")
+
+            # 9-11. Flags (from this run's analysis, not stale history),
+            # status, public verification.
+            flags = [
+                agent_client.get_flag(flag_id)
+                for flag_id in summary["flagIds"]
+            ]
+            summary["flags"] = [
+                {
+                    "riskFlagId": flag.get("riskFlagId"),
+                    "severity": flag.get("severity"),
+                    "category": flag.get("category"),
+                }
+                for flag in flags
+                if isinstance(flag, dict)
+            ]
+            recorded = agent_client.list_flags(agent_id) or []
+            summary["flagCount"] = len(summary["flags"])
+            summary["totalFlagsOnRecord"] = len(recorded)
+            current = agent_client.get_agent(agent_id)
+            summary["agentStatus"] = current.get("status", "unknown")
+            verification = agent_client.verify_agent(agent_id)
+            summary["verification"] = (
+                verification.get("verification", {}).get("result", "unknown")
+                if isinstance(verification, dict)
+                else "unknown"
+            )
+
+            emit("")
+            emit("Agent Status:")
+            emit(f"  {summary['agentStatus']}")
+            emit("")
+            emit("Public Verification:")
+            emit(f"  {summary['verification']}")
+
+            if self._config.scenario == "benign":
+                self._report_benign(summary, emit)
+            else:
+                self._report_risky(summary, emit, agent_id)
+
+            emit("")
+            emit("Enforcement:")
+            emit(f"  {summary.get('enforcement', 'not-applicable')}")
+            return summary
+        finally:
+            # Best-effort hygiene on success AND failure paths.
+            self._revoke_agent_credential(
+                summary, emit, agent_id, credential_id
+            )
+
+    def _issue_agent_credential(
+        self, agent_id: str
+    ) -> tuple[BondAgentClient, str]:
+        """Operator creates a credential; agent acts through BondAgentClient."""
+        created = self._client.create_agent_credential(agent_id)
+        metadata = created["metadata"]
+        secret = created["secret"]
+        credential_id = metadata["credentialId"]
+        client = self._agent_client_factory(
+            self._config.api_url, f"{credential_id}.{secret}"
         )
-        parameters = dict(response.parameters)
-        # activity_id intentionally left for the SDK to generate fresh per
-        # run: flag IDs derive deterministically from activity content,
-        # so reusing an ID across runs would collide server-side.
-        parameters.setdefault("occurred_at", FIXED_OCCURRED_AT)
-        activity = build_activity(
-            agent_id=agent_id,
-            action_type=response.action_type,  # type: ignore[arg-type]
-            action=response.action,
-            policy_context=_policy(self._config.scenario == "benign"),
-            **parameters,
-        )
-        outcome = self._client.analyze_activity(agent_id, activity)
-        score = outcome.get("score") or {}
-        summary["analysisId"] = outcome.get("analysisId")
-        summary["score"] = score.get("score")
-        summary["flagIds"] = outcome.get("flagIds") or []
+        return client, credential_id
 
-        emit("")
-        emit("Activity:")
-        emit(f"  Type: {response.action_type}")
-        emit(f"  Action: {response.action}")
-        emit("")
-        emit("Risk:")
-        emit(f"  score: {summary['score']}")
-        emit(f"  flags: {len(summary['flagIds'])}")
-
-        # 9-11. Flags (from this run's analysis, not stale history),
-        # status, public verification.
-        flags = [
-            self._client.get_flag(flag_id)
-            for flag_id in summary["flagIds"]
-        ]
-        summary["flags"] = [
-            {
-                "riskFlagId": flag.get("riskFlagId"),
-                "severity": flag.get("severity"),
-                "category": flag.get("category"),
-            }
-            for flag in flags
-            if isinstance(flag, dict)
-        ]
-        recorded = self._client.list_flags(agent_id) or []
-        summary["flagCount"] = len(summary["flags"])
-        summary["totalFlagsOnRecord"] = len(recorded)
-        current = self._client.get_agent(agent_id)
-        summary["agentStatus"] = current.get("status", "unknown")
-        verification = self._client.verify_agent(agent_id)
-        summary["verification"] = (
-            verification.get("verification", {}).get("result", "unknown")
-            if isinstance(verification, dict)
-            else "unknown"
-        )
-
-        emit("")
-        emit("Agent Status:")
-        emit(f"  {summary['agentStatus']}")
-        emit("")
-        emit("Public Verification:")
-        emit(f"  {summary['verification']}")
-
-        if self._config.scenario == "benign":
-            self._report_benign(summary, emit)
-        else:
-            self._report_risky(summary, emit, agent_id)
-
-        emit("")
-        emit("Enforcement:")
-        emit(f"  {summary.get('enforcement', 'not-applicable')}")
-        return summary
+    def _revoke_agent_credential(
+        self,
+        summary: dict[str, Any],
+        emit: EmitFn,
+        agent_id: str,
+        credential_id: str,
+    ) -> None:
+        try:
+            self._client.revoke_agent_credential(agent_id, credential_id)
+            summary["credentialRevoked"] = True
+        except Exception:
+            # Revocation is hygiene, not correctness: the credential was
+            # already exercised and the run result stands regardless.
+            summary["credentialRevoked"] = False
 
     def _report_benign(
         self, summary: dict[str, Any], emit: EmitFn
