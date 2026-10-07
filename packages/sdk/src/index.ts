@@ -21,7 +21,29 @@ export type {
   ActivityInput,
   BuiltActivity,
 } from "./activity.js";
-export { ACTIVITY_TYPES, buildActivity } from "./activity.js";
+export {
+  ACTIVITY_TYPES,
+  buildActivity,
+  buildModelActivity,
+} from "./activity.js";
+export type { ModelActivityUsage } from "./activity.js";
+export {
+  normalizeUsage,
+  normalizeOpenAIUsage,
+  normalizeAnthropicUsage,
+  normalizeGeminiUsage,
+  normalizeDeepSeekUsage,
+  normalizeLocalUsage,
+} from "./providers/index.js";
+export type {
+  NormalizedModelUsage,
+  NormalizeUsageOptions,
+} from "./providers/index.js";
+export { describeFrameworkEvent } from "./adapters/generic.js";
+export type {
+  DescribedFrameworkEvent,
+  FrameworkAdapterConfig,
+} from "./adapters/generic.js";
 export type { RedactedMetadata } from "./redact.js";
 export { isSecretLikeKey, redactMetadata, truncateSnippet } from "./redact.js";
 export type {

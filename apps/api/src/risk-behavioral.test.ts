@@ -363,7 +363,7 @@ describe("G. isolation and backdating", () => {
         "SELECT occurred_at, created_at FROM agent_activity_ledger WHERE analysis_id = $1",
         [res.body.data.analysisId],
       );
-    expect(new Date(rows.rows[0]?.occurred_at as string).getFullYear()).toBe(
+    expect(new Date(rows.rows[0]?.occurred_at as string).getUTCFullYear()).toBe(
       2020,
     );
     expect(

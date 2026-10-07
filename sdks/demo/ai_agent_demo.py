@@ -26,6 +26,12 @@ from bond_sdk import (
     BondApiError,
     BondClient,
     build_activity,
+    build_model_activity,
+)
+from bond_sdk.adapters import GenericFrameworkAdapter
+from bond_sdk.providers import (
+    normalize_anthropic_usage,
+    normalize_openai_usage,
 )
 
 POLICY_VERSION = "bond-policy-v1"
@@ -40,6 +46,7 @@ RISKY_REF = "ai-demo-agent-risky-v1"
 BEHAVIORAL_REF = "ai-demo-agent-behavioral-v1"
 REPUTATION_REF = "ai-demo-agent-reputation-v1"
 POLICY_REF_PREFIX = "ai-demo-agent-policy"
+PROVIDERS_REF = "ai-demo-agent-providers-v1"
 
 FIXED_OCCURRED_AT = "2026-01-01T00:00:00.000Z"
 BEHAVIORAL_BASE_AT = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -90,7 +97,7 @@ class ScriptedModelProvider:
     """
 
     def __init__(self, scenario: str) -> None:
-        if scenario not in ("benign", "risky", "behavioral", "reputation", "policy", "delegation"):
+        if scenario not in ("benign", "risky", "behavioral", "reputation", "policy", "delegation", "providers"):
             raise BondApiError(
                 "INVALID_IDENTIFIER",
                 f"Unknown demo scenario: {scenario}",
@@ -277,27 +284,19 @@ class AIAgent:
         self._client.set_token(session["token"])
         if self._config.scenario == "delegation":
             return self._run_delegation(emit, summary)
-        external_ref = (
-            BENIGN_REF
-            if self._config.scenario == "benign"
-            else (
-                RISKY_REF
-                if self._config.scenario == "risky"
-                else (
-                    BEHAVIORAL_REF
-                    if self._config.scenario == "behavioral"
-                    else (
-                        REPUTATION_REF
-                        if self._config.scenario == "reputation"
-                        # Policy runs use a fresh agent per run: usage
-                        # windows accumulate server-side, so reusing an
-                        # agent would make step assertions history
-                        # dependent instead of deterministic.
-                        else f"{POLICY_REF_PREFIX}-{token_hex(4)}"
-                    )
-                )
-            )
-        )
+        # Policy runs use a fresh agent per run: usage windows
+        # accumulate server-side, so reusing an agent would make step
+        # assertions history dependent instead of deterministic.
+        if self._config.scenario == "policy":
+            external_ref = f"{POLICY_REF_PREFIX}-{token_hex(4)}"
+        else:
+            external_ref = {
+                "benign": BENIGN_REF,
+                "risky": RISKY_REF,
+                "behavioral": BEHAVIORAL_REF,
+                "reputation": REPUTATION_REF,
+                "providers": PROVIDERS_REF,
+            }[self._config.scenario]
         agent = self._register(external_ref)
         agent_id = agent["agentId"]
         summary["agentId"] = agent_id
@@ -340,6 +339,13 @@ class AIAgent:
                 emit("")
                 emit("Enforcement:")
                 emit("  not-applicable (policy findings are advisory)")
+                return summary
+
+            if self._config.scenario == "providers":
+                self._run_providers(emit, summary, agent_id, agent_client)
+                emit("")
+                emit("Enforcement:")
+                emit("  not-applicable (integration findings are advisory)")
                 return summary
 
             # 4-8. Model generates; SDK validates; API analyzes.
@@ -1050,6 +1056,205 @@ class AIAgent:
                     revoked_all = False
             summary["credentialRevoked"] = revoked_all
 
+    def _run_providers(
+        self,
+        emit: EmitFn,
+        summary: dict[str, Any],
+        agent_id: str,
+        agent_client: BondAgentClient,
+    ) -> None:
+        """Deterministic provider/framework integration (Phase 24).
+
+        All provider responses below are synthetic literals — no API
+        keys, no network calls, no provider SDKs. Steps: allowed
+        OpenAI call (success) → disallowed Anthropic call (provider
+        + model violation) → token overuse (limit violation) →
+        framework-adapter call (success). Costs are estimates only.
+        """
+        created = self._client.create_agent_policy(
+            agent_id,
+            {
+                "allowedProviders": ["openai"],
+                "allowedModels": ["gpt-4o"],
+                "maxInputTokens": 100000,
+            },
+        )
+        summary["policyId"] = created["policyId"]
+        summary["policyVersion"] = created["version"]
+        emit("")
+        emit("Policy:")
+        emit(f"  id: {created['policyId']}")
+        emit(f"  version: {created['version']}")
+
+        # Demo-authorized actions/tools: the caller context permits
+        # the integration shapes; the persisted server policy above
+        # governs provider/model/token limits.
+        policy_context = ActivityPolicyContext(
+            policy_version=POLICY_VERSION,
+            allowed_actions=("model-invocation", "research-assistant"),
+            declared_tools=("transfers", "research-assistant"),
+            spend_limit_minor_units=SPEND_LIMIT,
+        )
+
+        def submit(label: str, payload: dict[str, Any]) -> dict[str, Any]:
+            outcome = agent_client.analyze_activity(agent_id, payload)
+            decision = outcome.get("policy") or {}
+            violations = [
+                str(v.get("ruleId"))
+                for v in (decision.get("violations") or [])
+                if isinstance(v, dict)
+            ]
+            emit(
+                f"  {label}: allowed={decision.get('allowed')} "
+                f"violations={','.join(violations) or 'none'} "
+                f"flags={len(outcome.get('flagIds') or [])}"
+            )
+            return {
+                "allowed": decision.get("allowed"),
+                "violations": violations,
+                "flags": outcome.get("flagIds") or [],
+                "attribution": outcome.get("attribution") or {},
+            }
+
+        emit("")
+        emit("Provider Sequence:")
+        results: dict[str, dict[str, Any]] = {}
+
+        openai_usage = normalize_openai_usage(
+            {
+                "model": "gpt-4o",
+                "id": "chatcmpl-demo-1",
+                "usage": {
+                    "prompt_tokens": 120,
+                    "completion_tokens": 80,
+                    "total_tokens": 200,
+                },
+            }
+        )
+        results["allowed-openai"] = submit(
+            "allowed-openai",
+            build_model_activity(
+                agent_id,
+                openai_usage,
+                policy_context,
+                occurred_at=FIXED_OCCURRED_AT,
+            ),
+        )
+
+        anthropic_usage = normalize_anthropic_usage(
+            {
+                "model": "claude-sonnet-4",
+                "usage": {"input_tokens": 50, "output_tokens": 60},
+            }
+        )
+        results["denied-anthropic"] = submit(
+            "denied-anthropic",
+            build_model_activity(
+                agent_id,
+                anthropic_usage,
+                policy_context,
+                occurred_at=FIXED_OCCURRED_AT,
+            ),
+        )
+
+        heavy_usage = normalize_openai_usage(
+            {
+                "model": "gpt-4o",
+                "usage": {
+                    "prompt_tokens": 150000,
+                    "completion_tokens": 1000,
+                    "total_tokens": 151000,
+                },
+            }
+        )
+        results["token-overuse"] = submit(
+            "token-overuse",
+            build_model_activity(
+                agent_id,
+                heavy_usage,
+                policy_context,
+                occurred_at=FIXED_OCCURRED_AT,
+            ),
+        )
+
+        framework = GenericFrameworkAdapter(agent_id, policy_context)
+        framework_activity = framework.describe_event(
+            action_type="tool-call",
+            action="research-assistant",
+            tool="research-assistant",
+            text_snippet="synthetic framework output summary",
+            usage=openai_usage,
+            occurred_at=FIXED_OCCURRED_AT,
+        ).to_dict()
+        framework_result = submit("framework-adapter", framework_activity)
+        results["framework-adapter"] = framework_result
+
+        summary["providerResults"] = {
+            name: {
+                "allowed": result["allowed"],
+                "violations": result["violations"],
+            }
+            for name, result in results.items()
+        }
+        checks = [
+            (
+                results["allowed-openai"]["allowed"] is True
+                and not results["allowed-openai"]["violations"]
+                and not results["allowed-openai"]["flags"],
+                "allowed OpenAI call must succeed cleanly",
+            ),
+            (
+                "policy-provider-denied"
+                in results["denied-anthropic"]["violations"]
+                and results["denied-anthropic"]["flags"],
+                "disallowed provider must violate and flag",
+            ),
+            (
+                "policy-input-token-limit"
+                in results["token-overuse"]["violations"]
+                and results["token-overuse"]["flags"],
+                "token overuse must violate and flag",
+            ),
+            (
+                results["framework-adapter"]["allowed"] is True
+                and not results["framework-adapter"]["violations"],
+                "framework adapter call must pass policy",
+            ),
+        ]
+        for passed, message in checks:
+            if not passed:
+                raise BondApiError(
+                    "INVALID_ACTIVITY_INPUT",
+                    f"Providers scenario failed: {message}.",
+                    0,
+                    None,
+                )
+        framework_flags = results["framework-adapter"]["flags"]
+        emit("")
+        emit("Behavioral Note:")
+        if framework_flags:
+            rule_ids = sorted(
+                {
+                    str(flag_id).split("-", 2)[-1]
+                    for flag_id in framework_flags
+                }
+            )
+            emit(
+                f"  advisory behavioral flag(s): {','.join(rule_ids)} "
+                f"(first-seen tool novelty, expected)"
+            )
+        else:
+            emit("  no behavioral flags")
+        attribution = results["allowed-openai"].get("attribution", {})
+        summary["attribution"] = {
+            "requesterAgentId": attribution.get("requesterAgentId", agent_id),
+            "executorAgentId": agent_id,
+            "delegationId": None,
+        }
+        emit("")
+        emit("Attribution:")
+        emit(f"  executor={agent_id} (self, no delegation)")
+
     def _issue_agent_credential(
         self, agent_id: str, capabilities: list[str] | None = None
     ) -> tuple[BondAgentClient, str]:
@@ -1290,7 +1495,7 @@ def main(argv: list[str] | None = None) -> int:
     client: BondClient | None = None
     try:
         config = AIDemoConfig.from_env()
-        if config.scenario not in ("benign", "risky", "behavioral", "reputation", "policy", "delegation"):
+        if config.scenario not in ("benign", "risky", "behavioral", "reputation", "policy", "delegation", "providers"):
             raise BondApiError(
                 "INVALID_IDENTIFIER",
                 f"Unknown BOND_DEMO_SCENARIO: {config.scenario}.",

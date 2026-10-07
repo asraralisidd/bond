@@ -795,3 +795,75 @@ def test_delegation_flow_coordinator_worker():
     assert "Policy Under Delegation:" in text
     assert "grant-secret-xyz" not in text
     assert "agent-secret-xyz" not in text
+
+
+def providers_config():
+    return AIDemoConfig(
+        api_url="http://localhost:4000",
+        dev_auth_token="SECRET-TOKEN-XYZ",
+        external_key="ai-demo-operator",
+        mode="scripted",
+        scenario="providers",
+    )
+
+
+def test_providers_flow_adapter_policy_risk():
+    calls = {"n": 0}
+
+    class ProvidersAgentClient(StubClient):
+        def analyze_activity(self, agent_id, activity):
+            self.calls.append(("analyze_activity", activity["actionType"]))
+            calls["n"] += 1
+            n = calls["n"]
+            violations: list = []
+            flag_ids: list = []
+            if n == 2:
+                violations = [
+                    {"ruleId": "policy-provider-denied"},
+                    {"ruleId": "policy-model-denied"},
+                ]
+                flag_ids = ["rf-01234567-policy-provider-denied"]
+            elif n == 3:
+                violations = [{"ruleId": "policy-input-token-limit"}]
+                flag_ids = ["rf-01234567-policy-input-token-limit"]
+            return {
+                "analysisId": f"an-prov-{n}",
+                "score": {"score": 30},
+                "flagIds": flag_ids,
+                "policy": {
+                    "allowed": not violations,
+                    "policyVersion": "agent-policy-v1",
+                    "violations": violations,
+                },
+                "attribution": {
+                    "requesterAgentId": agent_id,
+                    "executorAgentId": agent_id,
+                    "delegationId": None,
+                },
+            }
+
+    client = StubClient()
+    agent_stub = ProvidersAgentClient()
+    out = io.StringIO()
+    summary = AIAgent(
+        providers_config(),
+        client,
+        ScriptedModelProvider("providers"),
+        agent_client_factory=lambda base_url, token: agent_stub,
+        grant_client_factory=lambda base_url, token: StubClient(),
+    ).run(out=out)
+    assert summary["policyVersion"] == 1
+    results = summary["providerResults"]
+    assert results["allowed-openai"]["allowed"] is True
+    assert "policy-provider-denied" in results["denied-anthropic"]["violations"]
+    assert "policy-input-token-limit" in results["token-overuse"]["violations"]
+    assert results["framework-adapter"]["allowed"] is True
+    assert summary["credentialRevoked"] is True
+    assert ("create_agent_policy", "agent-ai-1") in client.calls
+    text = out.getvalue()
+    assert "allowed-openai: allowed=True" in text
+    assert "policy-provider-denied" in text
+    assert "policy-input-token-limit" in text
+    assert "framework-adapter" in text
+    assert "grant-secret-xyz" not in text
+    assert "agent-secret-xyz" not in text

@@ -209,3 +209,56 @@ export function buildActivity(input: ActivityInput): BuiltActivity {
   }
   return built;
 }
+
+export interface ModelActivityUsage {
+  readonly provider: string;
+  readonly model?: string | null;
+  readonly inputTokens?: number | null;
+  readonly outputTokens?: number | null;
+  readonly totalTokens?: number | null;
+  readonly estimatedCostMinorUnits?: string | null;
+  readonly providerRequestId?: string | null;
+}
+
+/**
+ * Build a model-call activity from normalized provider usage.
+ * Represented as a `tool-call` with fixed action
+ * `model-invocation` and no tool: provider/model attribution (not
+ * tool identity) drives Phase 22 model/provider policy checks, so
+ * tool allowlists are unaffected. The provider request id becomes
+ * the activity id only when the caller supplies none.
+ */
+export function buildModelActivity(
+  agentId: string,
+  usage: ModelActivityUsage,
+  policyContext: ActivityPolicyContext,
+  options: {
+    action?: string;
+    activityId?: string;
+    occurredAt?: string;
+  } = {},
+): BuiltActivity {
+  const provider = requireText(usage.provider, "provider");
+  let activityId = options.activityId;
+  if (activityId === undefined && usage.providerRequestId != null) {
+    activityId = usage.providerRequestId;
+  }
+  return buildActivity({
+    agentId,
+    actionType: "tool-call",
+    action: options.action ?? "model-invocation",
+    policyContext,
+    ...(activityId !== undefined ? { activityId } : {}),
+    ...(options.occurredAt !== undefined
+      ? { occurredAt: options.occurredAt }
+      : {}),
+    provider,
+    ...(usage.model != null ? { model: usage.model } : {}),
+    ...(usage.inputTokens != null ? { inputTokens: usage.inputTokens } : {}),
+    ...(usage.outputTokens != null ? { outputTokens: usage.outputTokens } : {}),
+    ...(usage.totalTokens != null ? { totalTokens: usage.totalTokens } : {}),
+    ...(usage.estimatedCostMinorUnits != null
+      ? { estimatedCostMinorUnits: usage.estimatedCostMinorUnits }
+      : {}),
+  });
+}
