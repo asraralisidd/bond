@@ -43,6 +43,10 @@ import {
   listPolicyHistoryService,
   updatePolicyService,
 } from "../../services/policies.js";
+import {
+  createDelegationService,
+  listDelegationsService,
+} from "../../services/delegations.js";
 import { getRequestId } from "../request-id.js";
 
 export const agentsRouter = Router();
@@ -304,6 +308,105 @@ agentsRouter.get(
       const views = await listPolicyHistoryService({
         operatorId: auth.operatorId,
         agentId: req.params.id as string,
+        limit,
+      });
+      res.json({ data: views });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * Agent delegation management (Phase 23).
+ * Creation: operators owning the delegator, or the delegator agent
+ * itself (possession of each delegated capability is verified
+ * server-side against live credentials). Listing: operators owning
+ * the agent, or the agent itself for its own delegations.
+ */
+agentsRouter.post(
+  "/:id/delegations",
+  requireAgentOrOperator,
+  rateLimitFor("mutation"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const auth = requireAuthContext(req);
+      const body = req.body as {
+        delegateAgentId?: string;
+        capabilities?: unknown;
+        expiresAt?: unknown;
+        scope?: unknown;
+      };
+      const agentId = req.params.id as string;
+      if (auth.agent !== undefined && auth.agent.agentId !== agentId) {
+        throw new ApiError("FORBIDDEN", "Not your delegation");
+      }
+      if (typeof body.delegateAgentId !== "string") {
+        throw new ApiError("INVALID_IDENTIFIER", "delegateAgentId required");
+      }
+      const outcome = await runIdempotent({
+        key: req.headers["idempotency-key"] as string | undefined,
+        operatorId: auth.operatorId,
+        route: "POST /api/v1/agents/:id/delegations",
+        fingerprint: fingerprintRequest("POST /api/v1/agents/:id/delegations", {
+          ...body,
+          delegator: agentId,
+        }),
+        execute: async () =>
+          createDelegationService({
+            operatorId: auth.operatorId,
+            creatorAgentId: auth.agent?.agentId,
+            delegatorAgentId: agentId,
+            delegateAgentId: body.delegateAgentId as string,
+            capabilities: body.capabilities,
+            expiresAt: body.expiresAt,
+            scope: body.scope,
+            requestId: getRequestId(req),
+          }),
+      });
+      res.status(outcome.replayed ? 200 : 201).json({ data: outcome.body });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+agentsRouter.get(
+  "/:id/delegations",
+  requireAgentOrOperator,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const auth = requireAuthContext(req);
+      const agentId = req.params.id as string;
+      if (auth.agent !== undefined && auth.agent.agentId !== agentId) {
+        throw new ApiError("FORBIDDEN", "Not your delegations");
+      }
+      const rawRole = req.query.role;
+      const role =
+        rawRole === undefined || rawRole === "all"
+          ? "all"
+          : rawRole === "delegator" || rawRole === "delegate"
+            ? rawRole
+            : null;
+      if (role === null) {
+        throw new ApiError("INVALID_IDENTIFIER", "Invalid role");
+      }
+      const rawLive = req.query.live;
+      const liveOnly = rawLive !== "false";
+      const rawLimit = req.query.limit;
+      let limit = 20;
+      if (rawLimit !== undefined) {
+        limit = Number(rawLimit);
+        if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+          throw new ApiError("INVALID_IDENTIFIER", "Invalid limit");
+        }
+      }
+      const views = await listDelegationsService({
+        operatorId: auth.operatorId,
+        creatorAgentId: auth.agent?.agentId,
+        agentId,
+        role,
+        liveOnly,
         limit,
       });
       res.json({ data: views });

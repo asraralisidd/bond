@@ -66,6 +66,7 @@ export interface AnalysisResult {
   analysisId: string;
   flagIds: string[];
   score: RiskScoreView | null;
+  attribution?: ActivityAttribution;
   policy?: {
     allowed: boolean;
     policyVersion: string;
@@ -145,6 +146,47 @@ export interface AgentPolicyView {
   fields: Record<string, unknown>;
   createdBy: string;
   createdAt: string;
+}
+
+export interface DelegationScopeView {
+  actionTypes: readonly string[] | null;
+  tools: readonly string[] | null;
+  models: readonly string[] | null;
+  providers: readonly string[] | null;
+}
+
+export interface DelegationView {
+  delegationId: string;
+  delegatorAgentId: string;
+  delegateAgentId: string;
+  capabilities: readonly string[];
+  scope: DelegationScopeView;
+  status: string;
+  version: number;
+  protocolVersion: string;
+  expiresAt: string;
+  revokedAt: string | null;
+  revocationReason: string | null;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface DelegationInput {
+  delegateAgentId: string;
+  capabilities: readonly string[];
+  expiresAt: string;
+  scope?: {
+    actionTypes?: readonly string[];
+    tools?: readonly string[];
+    models?: readonly string[];
+    providers?: readonly string[];
+  };
+}
+
+export interface ActivityAttribution {
+  requesterAgentId: string;
+  executorAgentId: string;
+  delegationId: string | null;
 }
 
 export interface AttestationView {

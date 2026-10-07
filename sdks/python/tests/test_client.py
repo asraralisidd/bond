@@ -278,7 +278,11 @@ def test_method_coverage_paths_and_methods():
     client.get_agent_policy("a")
     client.update_agent_policy("a", 1, {})
     client.list_agent_policy_history("a")
-    assert len(routes) == 39
+    client.create_delegation("a", {})
+    client.list_delegations("a")
+    client.get_delegation("d")
+    client.revoke_delegation("d")
+    assert len(routes) == 43
     methods = {method for method, _ in routes}
     assert methods <= {"GET", "POST", "PATCH", "DELETE"}
     urls = [url for _, url in routes]

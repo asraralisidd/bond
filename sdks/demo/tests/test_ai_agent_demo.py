@@ -42,7 +42,6 @@ class StubClient:
             "version": 1,
             "status": "active",
         }
-
     def health(self):
         self.calls.append("health")
         return {"status": "ok"}
@@ -689,5 +688,110 @@ def test_policy_flow_covers_scenarios_a_through_e():
     text = out.getvalue()
     assert "policy-request-rate-limit" in text
     assert "activity-burst" in text
+    assert "grant-secret-xyz" not in text
+    assert "agent-secret-xyz" not in text
+
+
+def delegation_config():
+    return AIDemoConfig(
+        api_url="http://localhost:4000",
+        dev_auth_token="SECRET-TOKEN-XYZ",
+        external_key="ai-demo-operator",
+        mode="scripted",
+        scenario="delegation",
+    )
+
+
+def test_delegation_flow_coordinator_worker():
+    state = {"revoked": False, "delegations": 0}
+
+    class DelegationWorkerClient(StubClient):
+        def analyze_activity(
+            self, agent_id, activity, delegation_id=None, **kwargs
+        ):
+            del kwargs
+            self.calls.append(("analyze_activity", activity["actionType"]))
+            assert delegation_id in ("dlg-ai-1", "dlg-ai-2")
+            if state["revoked"] and delegation_id == "dlg-ai-1":
+                raise BondApiError(
+                    "DELEGATION_DENIED", "Delegation not authorized", 403, None
+                )
+            if (activity.get("tool"),) == ("shell-exec",):
+                raise BondApiError(
+                    "DELEGATION_DENIED", "Delegation not authorized", 403, None
+                )
+            state["analyses"] = state.get("analyses", 0) + 1
+            # Only non-raising calls reach here: 1 = allowed transfer,
+            # 2 = policy-phase submit under the fresh delegation.
+            if state["analyses"] == 2:
+                return {
+                    "analysisId": "an-dlg-pol",
+                    "score": {"score": 55},
+                    "flagIds": ["flag-dlg-pol"],
+                    "attribution": {
+                        "requesterAgentId": "agent-ai-1",
+                        "executorAgentId": agent_id,
+                        "delegationId": delegation_id,
+                    },
+                    "policy": {
+                        "allowed": False,
+                        "violations": [{"ruleId": "policy-input-token-limit"}],
+                    },
+                }
+            return {
+                "analysisId": "an-dlg-1",
+                "score": {"score": 10},
+                "flagIds": ["flag-dlg-1"],
+                "attribution": {
+                    "requesterAgentId": "agent-ai-1",
+                    "executorAgentId": agent_id,
+                    "delegationId": delegation_id,
+                },
+                "policy": {"allowed": True, "violations": []},
+            }
+
+        def create_delegation(self, delegator_agent_id, delegation):
+            del delegation
+            self.calls.append(("create_delegation", delegator_agent_id))
+            state["delegations"] += 1
+            return {
+                "delegationId": f"dlg-ai-{state['delegations']}",
+                "delegatorAgentId": delegator_agent_id,
+                "capabilities": ["activity:submit"],
+                "status": "active",
+            }
+
+        def revoke_delegation(self, delegation_id, reason=None):
+            del reason
+            self.calls.append(("revoke_delegation", delegation_id))
+            state["revoked"] = True
+            return {"delegationId": delegation_id, "status": "revoked"}
+
+    client = StubClient()
+    worker = DelegationWorkerClient()
+
+    def factory(base_url, token):
+        return worker
+
+    out = io.StringIO()
+    summary = AIAgent(
+        delegation_config(),
+        client,
+        ScriptedModelProvider("delegation"),
+        agent_client_factory=factory,
+        grant_client_factory=lambda base_url, token: StubClient(),
+    ).run(out=out)
+    assert summary["delegatorAgentId"] == "agent-ai-1"
+    assert summary["delegationId"] == "dlg-ai-1"
+    assert summary["attribution"]["requesterAgentId"] == "agent-ai-1"
+    assert summary["attribution"]["delegationId"] == "dlg-ai-1"
+    assert summary["policyDelegationId"] == "dlg-ai-2"
+    assert summary["credentialRevoked"] is True
+    text = out.getvalue()
+    assert "Coordinator:" in text
+    assert "allowed-transfer: SUCCESS" in text
+    assert "out-of-scope-tool: DENIED" in text
+    assert "post-revoke-transfer: DENIED" in text
+    assert "Policy Under Delegation:" in text
     assert "grant-secret-xyz" not in text
     assert "agent-secret-xyz" not in text

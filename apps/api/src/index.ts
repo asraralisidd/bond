@@ -15,6 +15,7 @@ import { authRouter } from "./http/routes/auth.js";
 import { agentsRouter } from "./http/routes/agents.js";
 import { agentCredentialsRouter } from "./http/routes/agent-credentials.js";
 import { setupGrantsRouter } from "./http/routes/setup-grants.js";
+import { delegationsRouter } from "./http/routes/delegations.js";
 import { bondsRouter } from "./http/routes/bonds.js";
 import { transactionsRouter } from "./http/routes/transactions.js";
 import { riskRouter } from "./http/routes/risk.js";
@@ -152,6 +153,7 @@ export function createApp(): express.Express {
   app.use("/api/v1/attestations", attestationsRouter);
   app.use("/api/v1/attestors", attestorsRouter);
   app.use("/api/v1/setup-grants", setupGrantsRouter);
+  app.use("/api/v1/delegations", delegationsRouter);
 
   // 6. JSON 404 for everything unmatched (never Express HTML).
   app.use(notFoundHandler);

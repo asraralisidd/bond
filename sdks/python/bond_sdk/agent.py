@@ -41,9 +41,16 @@ class BondAgentClient:
         """Request id of the most recently completed API call."""
         return self._client.last_request_id
 
-    def analyze_activity(self, agent_id: str, activity: dict[str, Any]) -> Any:
-        """Submit activity for analysis (requires activity:submit)."""
-        return self._client.analyze_activity(agent_id, activity)
+    def analyze_activity(
+        self,
+        agent_id: str,
+        activity: dict[str, Any],
+        delegation_id: str | None = None,
+    ) -> Any:
+        """Submit activity (requires activity:submit, or delegation)."""
+        return self._client.analyze_activity(
+            agent_id, activity, delegation_id=delegation_id
+        )
 
     def list_flags(self, agent_id: str) -> Any:
         """List own risk flags (requires risk:read)."""
@@ -75,6 +82,30 @@ class BondAgentClient:
     def get_policy(self, agent_id: str) -> Any:
         """Fetch own effective policy (requires agent:read; read-only)."""
         return self._client.get_agent_policy(agent_id)
+
+    def create_delegation(
+        self, delegator_agent_id: str, delegation: dict[str, Any]
+    ) -> Any:
+        """Delegate authority (server verifies caps + self-access)."""
+        return self._client.create_delegation(delegator_agent_id, delegation)
+
+    def list_delegations(
+        self, agent_id: str, role: str = "all", live_only: bool = True
+    ) -> Any:
+        """List delegations involving an agent (server scopes access)."""
+        return self._client.list_delegations(
+            agent_id, role=role, live_only=live_only
+        )
+
+    def get_delegation(self, delegation_id: str) -> Any:
+        """Fetch one delegation (delegator, delegate, or operator)."""
+        return self._client.get_delegation(delegation_id)
+
+    def revoke_delegation(
+        self, delegation_id: str, reason: str | None = None
+    ) -> Any:
+        """Revoke own delegation (delegator only; idempotent)."""
+        return self._client.revoke_delegation(delegation_id, reason=reason)
 
     def verify_agent(self, agent_id: str) -> Any:
         """Public verification (requires verification:read)."""

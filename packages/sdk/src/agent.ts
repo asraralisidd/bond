@@ -13,6 +13,8 @@ import type {
   AgentPolicyView,
   AnalysisResult,
   AgentView,
+  DelegationInput,
+  DelegationView,
   EventFeedPage,
   PublicAgentVerification,
   RiskFlagView,
@@ -61,6 +63,8 @@ export class BondAgentClient {
   /**
    * Wrap an existing BondClient configured with an agent credential
    * (e.g. `new BondClient({ baseUrl, token: "<credentialId>.<secret>" })`).
+   * Delegation helpers take explicit agent ids; the server still
+   * enforces self-access on every call.
    */
   constructor(client: BondClient) {
     this.client = client;
@@ -78,8 +82,38 @@ export class BondAgentClient {
   analyzeActivity(
     agentId: string,
     activity: Record<string, unknown> | BuiltActivity,
+    delegationId?: string,
   ): Promise<AnalysisResult> {
-    return this.client.analyzeActivity(agentId, activity);
+    return this.client.analyzeActivity(agentId, activity, delegationId);
+  }
+
+  /**
+   * Delegate authority to another agent. The server verifies every
+   * delegated capability against the caller's live capabilities and
+   * rejects cross-agent creation — attribution is derived
+   * server-side.
+   */
+  createDelegation(
+    delegatorAgentId: string,
+    input: DelegationInput,
+  ): Promise<DelegationView> {
+    return this.client.createDelegation(delegatorAgentId, input);
+  }
+
+  listDelegations(
+    agentId: string,
+    role: "all" | "delegator" | "delegate" = "all",
+    liveOnly = true,
+  ): Promise<DelegationView[]> {
+    return this.client.listDelegations(agentId, role, liveOnly);
+  }
+
+  getDelegation(id: string): Promise<DelegationView> {
+    return this.client.getDelegation(id);
+  }
+
+  revokeDelegation(id: string, reason?: string): Promise<DelegationView> {
+    return this.client.revokeDelegation(id, reason);
   }
 
   listFlags(agentId: string): Promise<RiskFlagView[]> {
