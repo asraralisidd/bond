@@ -20,6 +20,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
+    "test:live": "BOND_E2E_LIVE=1 vitest run live-midnight",
     "test:watch": "vitest",
     "clean": "node scripts/clean.mjs"
   },

@@ -79,21 +79,21 @@ describe("CORS configuration", () => {
       loadConfig({
         NODE_ENV: "production",
         DATABASE_URL: "postgresql://x",
-        MIDNIGHT_NETWORK: "undeployed",
+        MIDNIGHT_NETWORK: "simulated",
       } as NodeJS.ProcessEnv),
     ).toThrowError(/CORS_ORIGINS/);
     expect(() =>
       loadConfig({
         NODE_ENV: "production",
         DATABASE_URL: "postgresql://x",
-        MIDNIGHT_NETWORK: "undeployed",
+        MIDNIGHT_NETWORK: "simulated",
         CORS_ORIGINS: "https://a.example, *",
       } as NodeJS.ProcessEnv),
     ).toThrowError(/\*/);
     const ok = loadConfig({
       NODE_ENV: "production",
       DATABASE_URL: "postgresql://x",
-      MIDNIGHT_NETWORK: "undeployed",
+      MIDNIGHT_NETWORK: "simulated",
       CORS_ORIGINS: "https://a.example, https://b.example",
     } as NodeJS.ProcessEnv);
     expect(ok.corsOrigins).toEqual(["https://a.example", "https://b.example"]);
@@ -104,7 +104,7 @@ describe("CORS configuration", () => {
       loadConfig({
         NODE_ENV: "production",
         DATABASE_URL: "postgresql://x",
-        MIDNIGHT_NETWORK: "undeployed",
+        MIDNIGHT_NETWORK: "simulated",
         CORS_ORIGINS: "https://a.example",
         DEV_AUTH_TOKEN: "dev-change-me",
       } as NodeJS.ProcessEnv),
@@ -122,9 +122,9 @@ describe("CORS configuration", () => {
       NODE_ENV: "production",
       DATABASE_URL: "postgresql://x",
       CORS_ORIGINS: "https://a.example",
-      MIDNIGHT_NETWORK: "undeployed",
+      MIDNIGHT_NETWORK: "simulated",
     } as NodeJS.ProcessEnv);
-    expect(explicit.midnightNetwork).toBe("undeployed");
+    expect(explicit.midnightNetwork).toBe("simulated");
     expect(() =>
       loadConfig({ NODE_ENV: "nope" } as NodeJS.ProcessEnv),
     ).toThrowError(/NODE_ENV/);
@@ -264,6 +264,67 @@ describe("/health vs /ready", () => {
     expect(result.ready).toBe(false);
     expect(result.checks.database).toMatchObject({ ok: true, schema: false });
     expect(result.checks.midnight.mode).toBe("SIMULATED");
+  });
+
+  it("reports contract not-applicable in SIMULATED mode", async () => {
+    const { checkReadiness } = await import("./http/routes/system.js");
+    const result = await checkReadiness(undefined, "simulated");
+    expect(result.checks.midnight.mode).toBe("SIMULATED");
+    expect(result.checks.midnight.contract).toEqual({
+      status: "not-applicable",
+    });
+  });
+
+  it("reports address-missing for REAL without a contract address", async () => {
+    const saved = process.env.BOND_CONTRACT_ADDRESS;
+    delete process.env.BOND_CONTRACT_ADDRESS;
+    try {
+      const { checkReadiness } = await import("./http/routes/system.js");
+      const result = await checkReadiness(undefined, "undeployed");
+      expect(result.checks.midnight.mode).toBe("REAL");
+      expect(result.checks.midnight.contract).toEqual({
+        status: "address-missing",
+      });
+    } finally {
+      if (saved === undefined) {
+        delete process.env.BOND_CONTRACT_ADDRESS;
+      } else {
+        process.env.BOND_CONTRACT_ADDRESS = saved;
+      }
+    }
+  });
+
+  it("reports unreachable for a configured but dead contract endpoint", async () => {
+    // undeployed defaults point at localhost with nothing listening, so
+    // the probe fails fast (connection refused, not the 5s timeout).
+    const saved = process.env.BOND_CONTRACT_ADDRESS;
+    process.env.BOND_CONTRACT_ADDRESS = "addr-test-unreachable";
+    try {
+      const { checkReadiness } = await import("./http/routes/system.js");
+      const result = await checkReadiness(undefined, "undeployed");
+      expect(result.checks.midnight.contract).toEqual({
+        status: "unreachable",
+        addressConfigured: true,
+      });
+      // No address echo, no URLs, no paths in the response.
+      expect(JSON.stringify(result)).not.toContain("addr-test-unreachable");
+      expect(JSON.stringify(result)).not.toContain("127.0.0.1");
+    } finally {
+      if (saved === undefined) {
+        delete process.env.BOND_CONTRACT_ADDRESS;
+      } else {
+        process.env.BOND_CONTRACT_ADDRESS = saved;
+      }
+    }
+  }, 20000);
+
+  it("reports misconfigured contract state on invalid network", async () => {
+    const { checkReadiness } = await import("./http/routes/system.js");
+    const result = await checkReadiness(undefined, "mainnet");
+    expect(result.checks.midnight.mode).toBe("MISCONFIGURED");
+    expect(result.checks.midnight.contract).toEqual({
+      status: "misconfigured",
+    });
   });
 });
 
@@ -417,5 +478,42 @@ describe("production configuration", () => {
     expect(config.bodyLimit).toBe("100kb");
     expect(config.requestTimeoutMs).toBe(30000);
     expect(config.shutdownTimeoutMs).toBe(10000);
+  });
+
+  it("requires a contract address for REAL networks in production", () => {
+    const base = {
+      NODE_ENV: "production",
+      DATABASE_URL: "postgresql://x",
+      CORS_ORIGINS: "https://app.example.com",
+    } as NodeJS.ProcessEnv;
+    for (const network of ["undeployed", "preprod"]) {
+      expect(() =>
+        loadConfig({ ...base, MIDNIGHT_NETWORK: network }),
+      ).toThrowError(/BOND_CONTRACT_ADDRESS/);
+    }
+    const ok = loadConfig({
+      ...base,
+      MIDNIGHT_NETWORK: "undeployed",
+      BOND_CONTRACT_ADDRESS: "addr-live-123",
+    });
+    expect(ok.midnightNetwork).toBe("undeployed");
+  });
+
+  it("keeps SIMULATED valid without a contract address", () => {
+    for (const network of ["", "simulated", "off"]) {
+      const config = loadConfig({
+        DATABASE_URL: "postgresql://x",
+        MIDNIGHT_NETWORK: network,
+      } as NodeJS.ProcessEnv);
+      expect(config.midnightNetwork).toBe(network);
+    }
+    // Explicit simulated in production is allowed (labeled, never REAL).
+    const prod = loadConfig({
+      NODE_ENV: "production",
+      DATABASE_URL: "postgresql://x",
+      CORS_ORIGINS: "https://app.example.com",
+      MIDNIGHT_NETWORK: "simulated",
+    } as NodeJS.ProcessEnv);
+    expect(prod.midnightNetwork).toBe("simulated");
   });
 });

@@ -169,6 +169,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       "MIDNIGHT_NETWORK must be set explicitly in production (empty means SIMULATED)",
     );
   }
+  // Phase 14: a REAL Midnight network without a deployed contract address
+  // is a misconfiguration — submission and reconciliation would fail at
+  // runtime. Fail closed at startup instead of discovering it live.
+  const normalizedNetwork = midnightNetwork.trim().toLowerCase();
+  const contractAddress = env.BOND_CONTRACT_ADDRESS?.trim() || null;
+  if (
+    nodeEnv === "production" &&
+    (normalizedNetwork === "undeployed" || normalizedNetwork === "preprod") &&
+    contractAddress === null
+  ) {
+    throw new Error(
+      "BOND_CONTRACT_ADDRESS must be set in production when MIDNIGHT_NETWORK selects a REAL network",
+    );
+  }
   const shutdownTimeoutMs = parsePositiveInt("SHUTDOWN_TIMEOUT_MS", env, 10000);
   if (shutdownTimeoutMs <= 0) {
     throw new Error("Invalid SHUTDOWN_TIMEOUT_MS: must be > 0");

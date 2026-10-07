@@ -14,7 +14,12 @@
  */
 import type { Request, Response } from "express";
 import { Pool } from "pg";
-import { resolveMidnightConfig } from "@bond/midnight-adapter";
+import {
+  connectReadOnly,
+  defaultBondZkAssetsPath,
+  findBondContract,
+  resolveMidnightConfig,
+} from "@bond/midnight-adapter";
 import { getWorkerSnapshot } from "../../services/worker/registry.js";
 import type { WorkerSnapshot } from "../../services/worker/types.js";
 
@@ -55,6 +60,21 @@ export interface ReadinessCheck {
     readonly midnight: {
       readonly mode: string;
       readonly network: string | null;
+      /**
+       * Contract reachability (Phase 14). Status enums only — never
+       * addresses, URLs, paths, or chain internals:
+       * - not-applicable: SIMULATED/UNAVAILABLE config (no contract expected)
+       * - misconfigured: network config invalid
+       * - address-missing: REAL but no BOND_CONTRACT_ADDRESS
+       * - unreachable: address set but findBondContract failed/timed out
+       * - reachable: findBondContract succeeded (read-only, no submission)
+       */
+      readonly contract:
+        | { readonly status: "not-applicable" }
+        | { readonly status: "misconfigured" }
+        | { readonly status: "address-missing" }
+        | { readonly status: "unreachable"; readonly addressConfigured: true }
+        | { readonly status: "reachable"; readonly addressConfigured: true };
     };
     /**
      * Worker snapshot when a runtime exists in this process, else null
@@ -112,6 +132,9 @@ export async function checkReadiness(
 
   let mode = "UNKNOWN";
   let network: string | null = null;
+  let contract: ReadinessCheck["checks"]["midnight"]["contract"] = {
+    status: "not-applicable",
+  };
   try {
     const config = resolveMidnightConfig(
       midnightNetwork !== undefined
@@ -120,18 +143,67 @@ export async function checkReadiness(
     );
     mode = config.mode;
     network = config.endpoints?.networkId ?? null;
+    if (config.mode === "REAL" && config.endpoints !== null) {
+      const address = (process.env.BOND_CONTRACT_ADDRESS ?? "").trim();
+      if (!address) {
+        contract = { status: "address-missing" };
+      } else {
+        contract = await checkContractReachable(config, address);
+      }
+    }
   } catch {
     mode = "MISCONFIGURED";
+    contract = { status: "misconfigured" };
   }
 
   return {
     ready: dbOk && schemaOk,
     checks: {
       database: { ok: dbOk, schema: schemaOk },
-      midnight: { mode, network },
+      midnight: { mode, network, contract },
       worker: workerSnapshot(),
     },
   };
+}
+
+/**
+ * Read-only contract reachability probe. Never submits, never touches
+ * wallet private state (read-only provider bundle). Bounded by a timeout
+ * so readiness can never hang on a dead chain endpoint.
+ */
+async function checkContractReachable(
+  config: Parameters<typeof connectReadOnly>[0],
+  address: string,
+  timeoutMs = 5000,
+): Promise<
+  | { readonly status: "reachable"; readonly addressConfigured: true }
+  | { readonly status: "unreachable"; readonly addressConfigured: true }
+> {
+  const probe = (async () => {
+    const handle = connectReadOnly(config, defaultBondZkAssetsPath());
+    await findBondContract(handle, address);
+    return true;
+  })();
+  const timeout = new Promise<false>((resolve) => {
+    const timer = setTimeout(() => resolve(false), timeoutMs);
+    timer.unref?.();
+  });
+  // Attach a settlement handler so a late rejection after timeout cannot
+  // become an unhandled rejection.
+  probe.then(
+    () => undefined,
+    () => undefined,
+  );
+  const ok = await Promise.race([
+    probe.then(
+      () => true,
+      () => false,
+    ),
+    timeout,
+  ]);
+  return ok
+    ? { status: "reachable", addressConfigured: true }
+    : { status: "unreachable", addressConfigured: true };
 }
 
 export async function readyHandler(
