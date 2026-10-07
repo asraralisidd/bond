@@ -7,6 +7,22 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: bond_dev
+          POSTGRES_USER: bond
+          POSTGRES_PASSWORD: bond_dev_password_change_me
+        ports:
+          - 5544:5432
+        options: >-
+          --health-cmd "pg_isready -U bond -d bond_dev"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_PG_PASSWORD: bond_dev_password_change_me
     steps:
       - uses: actions/checkout@v4
 
@@ -16,7 +32,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Typecheck
         run: npm run typecheck
@@ -32,6 +48,14 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Python SDK and demo tests
+        run: |
+          pip install pytest httpx
+          PYTHONPATH=sdks/python python -m pytest sdks/python/tests sdks/demo/tests -q
+
+      - name: API image build
+        run: docker build -f apps/api/Dockerfile -t bond-api:ci .
 
       - name: Dependency audit (production only)
         run: npm audit --omit=dev

@@ -7,14 +7,20 @@ import { Pool } from "pg";
 import { migrate } from "./db/migrate.js";
 import { query } from "./db/pool.js";
 
+// CI-friendly parts override (defaults preserve local behavior).
+const PG_USER = process.env.TEST_PG_USER ?? "bond";
+const PG_PASSWORD = process.env.TEST_PG_PASSWORD ?? "bond";
+const PG_HOST = process.env.TEST_PG_HOST ?? "localhost";
+const PG_PORT = process.env.TEST_PG_PORT ?? "5544";
+
 const ADMIN_URL =
   process.env.TEST_ADMIN_DATABASE_URL ??
-  "postgresql://bond:bond@localhost:5544/bond_dev";
+  `postgresql://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/bond_dev`;
 
 export function testDatabaseUrl(name = "shared"): string {
   return (
     process.env.TEST_DATABASE_URL ??
-    `postgresql://bond:bond@localhost:5544/bond_test_${name}`
+    `postgresql://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/bond_test_${name}`
   );
 }
 

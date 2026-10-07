@@ -7,11 +7,12 @@ COPY apps/api/package.json ./apps/api/
 COPY apps/web/package.json ./apps/web/
 COPY packages/shared-types/package.json ./packages/shared-types/
 COPY packages/risk-engine/package.json ./packages/risk-engine/
+COPY packages/policy-engine/package.json ./packages/policy-engine/
 COPY packages/attestor/package.json ./packages/attestor/
 COPY packages/contract/package.json ./packages/contract/
 COPY packages/midnight-adapter/package.json ./packages/midnight-adapter/
 COPY packages/sdk/package.json ./packages/sdk/
-RUN npm install --ignore-scripts
+RUN npm ci
 COPY packages ./packages
 COPY contracts ./contracts
 COPY database ./database
@@ -20,6 +21,7 @@ WORKDIR /app/apps/api
 # Build @bond workspaces in dependency order before the API itself.
 RUN npm run build --workspace=@bond/shared-types \
  && npm run build --workspace=@bond/risk-engine \
+ && npm run build --workspace=@bond/policy-engine \
  && npm run build --workspace=@bond/attestor \
  && npm run build --workspace=@bond/contract \
  && npm run build --workspace=@bond/midnight-adapter \
