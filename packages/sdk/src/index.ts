@@ -7,6 +7,11 @@
 export { BondApiError, friendlyMessage, parseRetryAfter } from "./errors.js";
 export type { TokenProvider, FetchFn, BondClientOptions } from "./client.js";
 export { BondClient, newIdempotencyKey, resolveApiBase } from "./client.js";
+export { BondAgentClient } from "./agent.js";
+export type {
+  AgentCredentialMetadata,
+  AgentCredentialSecret,
+} from "./agent.js";
 export type {
   ActivityType,
   ReporterSeverity,

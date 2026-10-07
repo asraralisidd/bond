@@ -50,6 +50,15 @@ export function operatorKey(operatorId: string): string {
   return `op:${operatorId}`;
 }
 
+/**
+ * Agent-scoped bucket, separate from the owning operator's bucket: a
+ * compromised or chatty agent cannot burn its operator's budget and
+ * one agent's flood does not punish siblings.
+ */
+export function agentKey(agentId: string): string {
+  return `agent:${agentId}`;
+}
+
 export function publicKey(ip: string): string {
   return `pub:${ip}`;
 }

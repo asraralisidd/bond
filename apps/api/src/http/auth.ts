@@ -25,6 +25,15 @@ export interface AuthContext {
   readonly sessionId: string;
   readonly authMethod: string;
   readonly walletVerifyingKey: string | null;
+  /**
+   * Present only when authenticated via an agent credential (Phase 18).
+   * Operator sessions never carry this field.
+   */
+  readonly agent?: {
+    readonly agentId: string;
+    readonly credentialId: string;
+    readonly capabilities: readonly string[];
+  };
 }
 
 declare global {
@@ -102,6 +111,14 @@ export async function requireAuth(
 export function requireOperator(req: Request): AuthContext {
   if (!req.auth) {
     throw new ApiError("UNAUTHORIZED", "Authentication required");
+  }
+  if (req.auth.agent) {
+    // Agent credentials are never operator credentials, even though
+    // they resolve to the owning operator for scoping reads.
+    throw new ApiError(
+      "FORBIDDEN",
+      "Agent credentials cannot access operator routes",
+    );
   }
   return req.auth;
 }

@@ -7,7 +7,12 @@ import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
 import type { RawActivityInput } from "@bond/risk-engine";
 import { parseRiskFlagId } from "@bond/shared-types";
-import { requireAuth, requireOperator } from "../auth.js";
+import {
+  requireAgentCapability,
+  requireAgentOrOperator,
+  requireAuthContext,
+  requireSelfAgent,
+} from "../middleware/agent-auth.js";
 import { rateLimitFor } from "../rate-limit/middleware.js";
 import { getRequestId } from "../request-id.js";
 import { ApiError } from "../errors.js";
@@ -22,11 +27,11 @@ export const riskRouter = Router();
 
 riskRouter.post(
   "/analyses",
-  requireAuth,
+  requireAgentOrOperator,
   rateLimitFor("expensive"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const auth = requireOperator(req);
+      const auth = requireAuthContext(req);
       const body = req.body as {
         agentId?: string;
         activity?: Omit<RawActivityInput, "agentId">;
@@ -37,6 +42,8 @@ riskRouter.post(
           "agentId and activity required",
         );
       }
+      await requireAgentCapability(req, auth, "activity:submit");
+      requireSelfAgent(auth, body.agentId);
       const outcome = await analyzeActivityService({
         operatorId: auth.operatorId,
         agentId: body.agentId,
@@ -58,14 +65,16 @@ riskRouter.post(
 
 riskRouter.get(
   "/flags",
-  requireAuth,
+  requireAgentOrOperator,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const auth = requireOperator(req);
+      const auth = requireAuthContext(req);
       const agentId = req.query.agentId as string | undefined;
       if (!agentId) {
         throw new ApiError("INVALID_IDENTIFIER", "agentId query required");
       }
+      await requireAgentCapability(req, auth, "risk:read");
+      requireSelfAgent(auth, agentId);
       await getAgentService(agentId, auth.operatorId);
       const rows = await listRiskFlagsByAgent(agentId, 100);
       res.json({
@@ -87,15 +96,17 @@ riskRouter.get(
 
 riskRouter.get(
   "/flags/:id",
-  requireAuth,
+  requireAgentOrOperator,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const auth = requireOperator(req);
+      const auth = requireAuthContext(req);
       parseRiskFlagId(req.params.id);
       const row = await findRiskFlagById(req.params.id as string);
       if (!row) {
         throw new ApiError("NOT_FOUND", "Risk flag not found");
       }
+      await requireAgentCapability(req, auth, "risk:read");
+      requireSelfAgent(auth, row.agent_id);
       await getAgentService(row.agent_id, auth.operatorId);
       res.json({
         data: {

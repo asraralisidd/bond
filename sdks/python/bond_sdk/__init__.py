@@ -12,6 +12,7 @@ from .activity import (
     ReporterSeverity,
     build_activity,
 )
+from .agent import BondAgentClient
 from .auth import TokenProvider, resolve_token
 from .client import BondClient, new_idempotency_key, resolve_api_base
 from .errors import BondApiError, friendly_message, parse_retry_after
@@ -26,6 +27,7 @@ __all__ = [
     "ActivityInput",
     "ActivityPolicyContext",
     "ActivityType",
+    "BondAgentClient",
     "BondApiError",
     "BondClient",
     "ReporterSeverity",

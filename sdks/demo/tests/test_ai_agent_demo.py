@@ -49,6 +49,21 @@ class StubClient:
             "externalRef": kwargs["external_ref"],
         }
 
+    def create_agent_credential(self, agent_id, **kwargs):
+        self.calls.append("create_agent_credential")
+        return {
+            "metadata": {
+                "credentialId": "cred-ai-1",
+                "agentId": agent_id,
+                "status": "ACTIVE",
+            },
+            "secret": "agent-secret-xyz",
+        }
+
+    def revoke_agent_credential(self, agent_id, credential_id, **kwargs):
+        self.calls.append(("revoke_agent_credential", credential_id))
+        return {"revoked": True, "credentialId": credential_id}
+
     def analyze_activity(self, agent_id, activity):
         self.calls.append(("analyze_activity", activity["actionType"]))
         return {
@@ -223,28 +238,60 @@ def test_malformed_model_output_fails_safely():
 
 def test_risky_flow_end_to_end_offline():
     client = StubClient()
+    agent_stub = StubClient()
+    seen_tokens = []
+
+    def factory(base_url, token):
+        seen_tokens.append(token)
+        assert token.startswith("cred-ai-1.")
+        return agent_stub
+
     out = io.StringIO()
     summary = AIAgent(
-        risky_config(), client, ScriptedModelProvider("risky")
+        risky_config(),
+        client,
+        ScriptedModelProvider("risky"),
+        agent_client_factory=factory,
     ).run(out=out)
     assert summary["agentId"] == "agent-ai-1"
+    assert summary["credentialId"] == "cred-ai-1"
+    assert summary["credentialRevoked"] is True
     assert summary["quorum"] == "quorum-met"
     assert summary["decision"] == "partial-slash"
     assert summary["transactionId"] == "tx-ai-1"
     assert summary["enforcement"] == "SIMULATED"
     assert summary["release"] == "WITHDRAWABLE"
+    # Agent-scoped calls went through the agent client, not the operator.
+    agent_verbs = [
+        c if isinstance(c, str) else c[0] for c in agent_stub.calls
+    ]
+    for verb in (
+        "analyze_activity",
+        "get_flag",
+        "list_flags",
+        "get_agent",
+        "verify_agent",
+    ):
+        assert verb in agent_verbs
+    operator_verbs = [
+        c if isinstance(c, str) else c[0] for c in client.calls
+    ]
+    assert "analyze_activity" not in operator_verbs
+    assert ("revoke_agent_credential", "cred-ai-1") in client.calls
     text = out.getvalue()
     for marker in (
         "BOND AI AGENT SECURITY DEMO",
         "Mode:\n  scripted",
         "Scenario:\n  risky",
         "Enforcement:\n  SIMULATED",
+        "cred-ai-1",
     ):
         assert marker in text
     # No fake chain claims, no secrets.
     assert "CONFIRMED" not in text
     assert "0x" not in text
     assert "SECRET-TOKEN-XYZ" not in text
+    assert "agent-secret-xyz" not in text
     assert "Authorization" not in text
     assert "Bearer" not in text
 
@@ -267,23 +314,47 @@ def test_benign_flow_zero_flags():
         scenario="benign",
     )
     out = io.StringIO()
-    summary = AIAgent(config, BenignClient(), ScriptedModelProvider("benign")).run(
-        out=out
-    )
+    summary = AIAgent(
+        config,
+        BenignClient(),
+        ScriptedModelProvider("benign"),
+        agent_client_factory=lambda base_url, token: BenignClient(),
+    ).run(out=out)
     assert summary["flags"] == []
+    assert summary["credentialRevoked"] is True
     assert "enforcement" not in summary
     assert "No confirmed findings" in out.getvalue()
 
 
 def test_attestation_submission_uses_sdk_only():
     client = StubClient()
-    AIAgent(risky_config(), client, ScriptedModelProvider("risky")).run(
-        out=io.StringIO()
-    )
+    agent_stub = StubClient()
+    AIAgent(
+        risky_config(),
+        client,
+        ScriptedModelProvider("risky"),
+        agent_client_factory=lambda base_url, token: agent_stub,
+    ).run(out=io.StringIO())
     verbs = [c if isinstance(c, str) else c[0] for c in client.calls]
     assert "request_attestation" in verbs
     assert verbs.count("register_attestor") == 2
     assert sum(1 for c in client.calls if c[0] == "submit_verdict") == 2
+
+
+def test_credential_revoked_even_on_failure():
+    class FailingAgentClient(StubClient):
+        def analyze_activity(self, agent_id, activity):
+            raise BondApiError("INTERNAL_ERROR", "boom", 500, None)
+
+    client = StubClient()
+    with pytest.raises(BondApiError):
+        AIAgent(
+            risky_config(),
+            client,
+            ScriptedModelProvider("risky"),
+            agent_client_factory=lambda base_url, token: FailingAgentClient(),
+        ).run(out=io.StringIO())
+    assert ("revoke_agent_credential", "cred-ai-1") in client.calls
 
 
 def test_no_forbidden_imports():

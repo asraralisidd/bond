@@ -13,6 +13,7 @@ import { notFoundHandler } from "./http/middleware/not-found.js";
 import { timeoutMiddleware } from "./http/middleware/timeout.js";
 import { authRouter } from "./http/routes/auth.js";
 import { agentsRouter } from "./http/routes/agents.js";
+import { agentCredentialsRouter } from "./http/routes/agent-credentials.js";
 import { bondsRouter } from "./http/routes/bonds.js";
 import { transactionsRouter } from "./http/routes/transactions.js";
 import { riskRouter } from "./http/routes/risk.js";
@@ -139,6 +140,7 @@ export function createApp(): express.Express {
 
   app.use("/api/v1/auth", authRouter);
   app.use("/api/v1/agents", agentsRouter);
+  app.use("/api/v1/agents/:id/credentials", agentCredentialsRouter);
   app.use("/api/v1/bonds", bondsRouter);
   app.use("/api/v1/transactions", transactionsRouter);
   app.use("/api/v1/risk", riskRouter);

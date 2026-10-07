@@ -6,6 +6,12 @@ import type { Request, Response, NextFunction } from "express";
 import type { AgentStatus } from "@bond/shared-types";
 import { toAgentPrivateView } from "../dto.js";
 import { requireAuth, requireOperator } from "../auth.js";
+import {
+  requireAgentCapability,
+  requireAgentOrOperator,
+  requireAuthContext,
+  requireSelfAgent,
+} from "../middleware/agent-auth.js";
 import { ApiError } from "../errors.js";
 import { rateLimitFor } from "../rate-limit/middleware.js";
 import {
@@ -84,10 +90,12 @@ agentsRouter.get(
 
 agentsRouter.get(
   "/:id",
-  requireAuth,
+  requireAgentOrOperator,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const auth = requireOperator(req);
+      const auth = requireAuthContext(req);
+      await requireAgentCapability(req, auth, "agent:read");
+      requireSelfAgent(auth, req.params.id as string);
       const row = await getAgentService(
         req.params.id as string,
         auth.operatorId,
