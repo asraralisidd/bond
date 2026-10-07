@@ -2,13 +2,14 @@
  * Agent-scoped client (Phase 18, OFF-CHAIN only).
  *
  * A thin, restricted view over BondClient for callers holding an agent
- * credential: only the four capabilities an agent credential may carry
+ * credential: only the five capabilities an agent credential may carry
  * are exposed. Everything else (bonds, transactions, attestations,
  * credential management) stays on BondClient with operator sessions.
  * The credential itself lives in the wrapped client, in memory only.
  */
 import { BondClient } from "./client.js";
 import type {
+  AgentReputationView,
   AnalysisResult,
   AgentView,
   EventFeedPage,
@@ -90,6 +91,11 @@ export class BondAgentClient {
 
   getAgent(id: string): Promise<AgentView> {
     return this.client.getAgent(id);
+  }
+
+  /** Read the caller's own reputation (server enforces self-access). */
+  getReputation(id: string, limit = 20): Promise<AgentReputationView> {
+    return this.client.getAgentReputation(id, limit);
   }
 
   listEvents(input?: {

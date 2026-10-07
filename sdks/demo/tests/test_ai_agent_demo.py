@@ -424,6 +424,91 @@ def test_main_failure_paths_nonzero(capsys, monkeypatch):
     assert "bad" not in captured.err
 
 
+def reputation_config():
+    return AIDemoConfig(
+        api_url="http://localhost:4000",
+        dev_auth_token="SECRET-TOKEN-XYZ",
+        external_key="ai-demo-operator",
+        mode="scripted",
+        scenario="reputation",
+    )
+
+
+def test_reputation_flow_degrades_with_explanations():
+    # Four stage snapshots plus the final full read (same score).
+    scores = iter([75, 75, 65, 53, 53])
+
+    class ReputationAgentClient(StubClient):
+        def analyze_activity(self, agent_id, activity):
+            self.calls.append(("analyze_activity", activity["actionType"]))
+            return {
+                "analysisId": "an-rep-1",
+                "score": {"score": 50},
+                "flagIds": ["flag-rep-1"],
+            }
+
+        def get_reputation(self, agent_id):
+            self.calls.append("get_reputation")
+            score = next(scores)
+            return {
+                "agentId": agent_id,
+                "score": score,
+                "trustLevel": "HIGH" if score >= 70 else "MODERATE",
+                "version": "reputation-v1",
+                "events": [
+                    {
+                        "eventType": "risk_flag_observed",
+                        "scoreBefore": 75,
+                        "scoreAfter": 65,
+                        "impact": -10,
+                        "reasonCode": "OBSERVED_HIGH_RISK",
+                        "reason": "Automated risk analysis observed "
+                        "high-severity behavior.",
+                    },
+                    {
+                        "eventType": "attested_violation",
+                        "scoreBefore": 65,
+                        "scoreAfter": 53,
+                        "impact": -12,
+                        "reasonCode": "ATTESTED_HIGH_VIOLATION",
+                        "reason": "An independent attestation quorum "
+                        "confirmed a high-severity violation.",
+                    },
+                ],
+            }
+
+        def list_flags(self, agent_id):
+            self.calls.append("list_flags")
+            return []
+
+    client = StubClient()
+    agent_stub = ReputationAgentClient()
+    out = io.StringIO()
+    summary = AIAgent(
+        reputation_config(),
+        client,
+        ScriptedModelProvider("reputation"),
+        agent_client_factory=lambda base_url, token: agent_stub,
+        grant_client_factory=lambda base_url, token: StubClient(),
+    ).run(out=out)
+    assert [s["score"] for s in summary["reputationStages"]] == [
+        75,
+        75,
+        65,
+        53,
+    ]
+    assert summary["reputation"]["score"] == 53
+    assert summary["credentialRevoked"] is True
+    text = out.getvalue()
+    assert "Reputation [baseline]:" in text
+    assert "after-attested-decision" in text
+    assert "OBSERVED_HIGH_RISK" in text
+    assert "ATTESTED_HIGH_VIOLATION" in text
+    assert "advisory trust intelligence" in text
+    assert "grant-secret-xyz" not in text
+    assert "agent-secret-xyz" not in text
+
+
 def test_behavioral_flow_reports_rule_ids_and_versions():
     class BehavioralAgentClient(StubClient):
         def analyze_activity(self, agent_id, activity):

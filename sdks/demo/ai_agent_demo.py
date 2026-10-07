@@ -38,6 +38,7 @@ AI_DEMO_CAPABILITIES = ("demo-messaging", "demo-tool-use")
 BENIGN_REF = "ai-demo-agent-benign-v1"
 RISKY_REF = "ai-demo-agent-risky-v1"
 BEHAVIORAL_REF = "ai-demo-agent-behavioral-v1"
+REPUTATION_REF = "ai-demo-agent-reputation-v1"
 
 FIXED_OCCURRED_AT = "2026-01-01T00:00:00.000Z"
 BEHAVIORAL_BASE_AT = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -82,10 +83,13 @@ class ScriptedModelProvider:
       (all rule guards pass → zero findings).
     - "risky": denylisted action at 3x the spend limit (policy-denylist
       high/90 + spend-limit-breach high/85).
+    - "behavioral": scripted 19-step sequence (own step builder).
+    - "reputation": risky action reused for the trust lifecycle
+      (own stage builder; generate() falls through to risky).
     """
 
     def __init__(self, scenario: str) -> None:
-        if scenario not in ("benign", "risky", "behavioral"):
+        if scenario not in ("benign", "risky", "behavioral", "reputation"):
             raise BondApiError(
                 "INVALID_IDENTIFIER",
                 f"Unknown demo scenario: {scenario}",
@@ -276,7 +280,11 @@ class AIAgent:
             else (
                 RISKY_REF
                 if self._config.scenario == "risky"
-                else BEHAVIORAL_REF
+                else (
+                    BEHAVIORAL_REF
+                    if self._config.scenario == "behavioral"
+                    else REPUTATION_REF
+                )
             )
         )
         agent = self._register(external_ref)
@@ -310,6 +318,10 @@ class AIAgent:
                 emit("")
                 emit("Enforcement:")
                 emit("  not-applicable (behavioral findings are advisory)")
+                return summary
+
+            if self._config.scenario == "reputation":
+                self._run_reputation(emit, summary, agent_id, agent_client)
                 return summary
 
             # 4-8. Model generates; SDK validates; API analyzes.
@@ -539,6 +551,129 @@ class AIAgent:
         emit("Behavioral Model Versions:")
         for version in summary["behavioralModelVersions"]:
             emit(f"  {version}")
+
+    def _run_reputation(
+        self,
+        emit: EmitFn,
+        summary: dict[str, Any],
+        agent_id: str,
+        agent_client: BondAgentClient,
+    ) -> None:
+        """Deterministic reputation lifecycle (Phase 21, scripted only).
+
+        Stages: baseline → benign activity (preserved) → risky
+        activity (observed dip) → attested decision (verified dip) →
+        simulated enforcement (no chain: the slash hook fires only on
+        real worker-confirmed slash events, covered by API tests).
+        Every stage prints the score, trust level, and the reasons
+        behind each change.
+        """
+        stages: list[dict[str, Any]] = []
+
+        def snapshot(stage: str) -> None:
+            rep = agent_client.get_reputation(agent_id) or {}
+            stages.append(
+                {
+                    "stage": stage,
+                    "score": rep.get("score"),
+                    "trustLevel": rep.get("trustLevel"),
+                }
+            )
+            emit("")
+            emit(f"Reputation [{stage}]:")
+            emit(f"  score: {rep.get('score')}")
+            emit(f"  trust: {rep.get('trustLevel')}")
+            emit(f"  version: {rep.get('version')}")
+
+        snapshot("baseline")
+
+        benign = build_activity(
+            agent_id=agent_id,
+            action_type="transfer",
+            action="pay-vendor",
+            policy_context=_policy(True),
+            amount_minor_units="500",
+            occurred_at=FIXED_OCCURRED_AT,
+        )
+        agent_client.analyze_activity(agent_id, benign)
+        snapshot("after-benign-activity")
+
+        response = self._model.generate(
+            "act under bond policy",
+            {"agentId": agent_id, "scenario": "reputation"},
+        )
+        risky = build_activity(
+            agent_id=agent_id,
+            action_type=response.action_type,  # type: ignore[arg-type]
+            action=response.action,
+            policy_context=_policy(False),
+            occurred_at=FIXED_OCCURRED_AT,
+            **dict(response.parameters),
+        )
+        outcome = agent_client.analyze_activity(agent_id, risky)
+        summary["flagIds"] = outcome.get("flagIds") or []
+        if not summary["flagIds"]:
+            raise BondApiError(
+                "INVALID_ACTIVITY_INPUT",
+                "Reputation scenario produced no flags; expected findings.",
+                0,
+                None,
+            )
+        flags = [
+            agent_client.get_flag(flag_id)
+            for flag_id in summary["flagIds"]
+        ]
+        summary["flags"] = [
+            {
+                "riskFlagId": flag.get("riskFlagId"),
+                "severity": flag.get("severity"),
+                "category": flag.get("category"),
+            }
+            for flag in flags
+            if isinstance(flag, dict)
+        ]
+        snapshot("after-risky-activity")
+
+        # Independent attestation + simulated enforcement (reuses the
+        # risky-scenario path; enforcement effects stay SIMULATED).
+        self._attest_and_enforce(summary, emit, agent_id)
+        snapshot("after-attested-decision")
+
+        full = agent_client.get_reputation(agent_id) or {}
+        summary["reputationStages"] = stages
+        summary["reputationEvents"] = full.get("events") or []
+        summary["reputation"] = {
+            "score": full.get("score"),
+            "trustLevel": full.get("trustLevel"),
+            "version": full.get("version"),
+        }
+        scores = [s["score"] for s in stages]
+        if not (
+            scores[1] == scores[0]
+            and scores[2] < scores[1]
+            and scores[3] < scores[2]
+        ):
+            raise BondApiError(
+                "INVALID_ACTIVITY_INPUT",
+                f"Reputation did not degrade as expected: {scores}.",
+                0,
+                None,
+            )
+        emit("")
+        emit("Reputation History (why it changed):")
+        for event in summary["reputationEvents"]:
+            if not isinstance(event, dict):
+                continue
+            emit(
+                f"  - {event.get('eventType')}: "
+                f"{event.get('scoreBefore')} → {event.get('scoreAfter')} "
+                f"({event.get('impact'):+d}, {event.get('reasonCode')})"
+            )
+            emit(f"    {event.get('reason')}")
+        emit("")
+        emit("Note:")
+        emit("  Reputation is advisory trust intelligence and does not")
+        emit("  directly authorize or execute enforcement.")
 
     def _issue_agent_credential(
         self, agent_id: str
@@ -779,7 +914,7 @@ def main(argv: list[str] | None = None) -> int:
     client: BondClient | None = None
     try:
         config = AIDemoConfig.from_env()
-        if config.scenario not in ("benign", "risky", "behavioral"):
+        if config.scenario not in ("benign", "risky", "behavioral", "reputation"):
             raise BondApiError(
                 "INVALID_IDENTIFIER",
                 f"Unknown BOND_DEMO_SCENARIO: {config.scenario}.",

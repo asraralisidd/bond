@@ -42,6 +42,7 @@ import {
 } from "./transactions.js";
 import { buildDecisionFromAttestation } from "./attestations.js";
 import { recordEvent } from "./events.js";
+import { applyReputationEventService } from "./reputation.js";
 
 async function agentOf(row: ChainTxRow) {
   if (!row.agent_id) {
@@ -398,6 +399,18 @@ export function registerBondFinalizers(): void {
         },
         client,
       );
+      // Strongest negative signal: enforcement actually executed.
+      // Same finalizer tx as the slash completion.
+      await applyReputationEventService(
+        {
+          agentId: row.agent_id,
+          eventType: "slash_enforced",
+          sourceType: "slash_event",
+          sourceId: slashId,
+          fullSlash: full,
+        },
+        client,
+      );
       await refreshReputation(row.agent_id, client);
     },
   );
@@ -425,6 +438,17 @@ export function registerBondFinalizers(): void {
         client,
       );
       await updateAgentStatus(row.agent_id, "WITHDRAWABLE", client);
+      // Verified clean completion: the only positive source strong
+      // enough to move reputation up (raw activity never does).
+      await applyReputationEventService(
+        {
+          agentId: row.agent_id,
+          eventType: "clean_bond_completed",
+          sourceType: "bond",
+          sourceId: row.bond_id,
+        },
+        client,
+      );
       await refreshReputation(row.agent_id, client);
     },
   );

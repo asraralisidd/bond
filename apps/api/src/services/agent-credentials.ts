@@ -27,6 +27,7 @@ export const AGENT_CAPABILITIES = [
   "agent:read",
   "risk:read",
   "verification:read",
+  "reputation:read",
 ] as const;
 
 /**

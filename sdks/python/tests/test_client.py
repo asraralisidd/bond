@@ -273,7 +273,8 @@ def test_method_coverage_paths_and_methods():
     client.create_setup_grant(scopes=["agent:register"])
     client.list_setup_grants()
     client.revoke_setup_grant("grant_1")
-    assert len(routes) == 34
+    client.get_agent_reputation("a")
+    assert len(routes) == 35
     methods = {method for method, _ in routes}
     assert methods <= {"GET", "POST", "PATCH", "DELETE"}
     urls = [url for _, url in routes]

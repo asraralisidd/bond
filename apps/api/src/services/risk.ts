@@ -42,6 +42,7 @@ import { ApiError } from "../http/errors.js";
 import { withTransaction } from "../db/pool.js";
 import { updateAgentStatus } from "../db/stores/registry.js";
 import { recordEvent } from "./events.js";
+import { applyReputationEventService } from "./reputation.js";
 import {
   findRiskAnalysisById,
   insertEvidenceDescriptor,
@@ -240,6 +241,21 @@ export async function analyzeActivityService(
             actor: "system:risk-engine",
             requestId: input.requestId,
             payload: { riskFlagId: flag.riskFlagId, severity: flag.severity },
+          },
+          client,
+        );
+        // Observed risk only: a raw flag is NOT a confirmed violation,
+        // so its reputation weight stays small by policy. Same tx —
+        // the flag and its reputation effect commit together.
+        await applyReputationEventService(
+          {
+            agentId: input.agentId,
+            eventType: "risk_flag_observed",
+            sourceType: "risk_flag",
+            sourceId: flag.riskFlagId as string,
+            severity: flag.severity,
+            category: flag.category,
+            requestId: input.requestId,
           },
           client,
         );

@@ -275,6 +275,12 @@ class BondClient:
         """Fetch one owned agent. Agent use: read status (getStatus)."""
         return self._get(f"/api/v1/agents/{agent_id}")
 
+    def get_agent_reputation(
+        self, agent_id: str, limit: int = 20
+    ) -> Any:
+        """Fetch owned agent reputation (advisory trust intelligence)."""
+        return self._get(f"/api/v1/agents/{agent_id}/reputation?limit={limit}")
+
     def register_agent(
         self,
         *,
