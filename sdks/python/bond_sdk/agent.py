@@ -1,7 +1,7 @@
 """Agent-scoped client (Phase 18, OFF-CHAIN only).
 
 A thin, restricted view over :class:`BondClient` for callers holding an
-agent credential: only the four capabilities an agent credential may
+agent credential: only the five capabilities an agent credential may
 carry are exposed. Everything else (bonds, transactions, attestations,
 credential management) stays on ``BondClient`` with operator sessions.
 The credential itself lives in the wrapped client, in memory only.
@@ -67,6 +67,10 @@ class BondAgentClient:
     def get_agent(self, agent_id: str) -> Any:
         """Fetch own agent record (requires agent:read)."""
         return self._client.get_agent(agent_id)
+
+    def get_reputation(self, agent_id: str, limit: int = 20) -> Any:
+        """Fetch own reputation (requires reputation:read)."""
+        return self._client.get_agent_reputation(agent_id, limit=limit)
 
     def verify_agent(self, agent_id: str) -> Any:
         """Public verification (requires verification:read)."""

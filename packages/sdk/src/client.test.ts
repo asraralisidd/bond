@@ -373,6 +373,7 @@ describe("method coverage", () => {
       ],
       ["listSetupGrants", client.listSetupGrants()],
       ["revokeSetupGrant", client.revokeSetupGrant("grant_1")],
+      ["getAgentReputation", client.getAgentReputation("a")],
     ];
     for (const [, promise] of calls) {
       await promise;

@@ -26,10 +26,12 @@ import type {
   EvidenceCategory,
   RiskFlag,
   RiskFlagStatus,
+  RiskSeverity,
 } from "@bond/shared-types";
 import { ApiError } from "../http/errors.js";
 import { withTransaction } from "../db/pool.js";
 import { recordEvent } from "./events.js";
+import { applyReputationEventService } from "./reputation.js";
 import {
   findAttestationById,
   findAttestorById,
@@ -293,6 +295,22 @@ export async function submitVerdictService(input: {
       },
       client,
     );
+    if (updated.status === "rejected") {
+      // Quorum rejection is verified exoneration: dismiss the flag
+      // (same rule as auto-evaluation) and record the restorative
+      // reputation effect in the same transaction.
+      await updateRiskFlagStatus(row.flag_id, "dismissed", client);
+      await applyReputationEventService(
+        {
+          agentId: row.agent_id,
+          eventType: "attestation_dismissed",
+          sourceType: "attestation",
+          sourceId: row.id,
+          requestId: input.requestId,
+        },
+        client,
+      );
+    }
   });
   return { status: updated.status, verdicts: updated.verdicts.length };
 }
@@ -360,6 +378,20 @@ export async function autoEvaluateService(input: {
       attestation.status === "rejected" ? "dismissed" : "under-review",
       client,
     );
+    if (attestation.status === "rejected") {
+      // Exoneration is a verified positive: attestors reviewed the
+      // flag and found no violation. Small restorative impact.
+      await applyReputationEventService(
+        {
+          agentId: row.agent_id,
+          eventType: "attestation_dismissed",
+          sourceType: "attestation",
+          sourceId: row.id,
+          requestId: input.requestId,
+        },
+        client,
+      );
+    }
   });
   return { status: attestation.status, evaluations: outcomes };
 }
@@ -410,6 +442,20 @@ export async function issueDecisionService(input: {
         actor: `operator:${input.operatorId}`,
         requestId: input.requestId,
         payload: { attestationId: row.id, action },
+      },
+      client,
+    );
+    // Verified outcome: quorum-confirmed violations weigh more than
+    // raw observations by policy. Same tx as the decision.
+    await applyReputationEventService(
+      {
+        agentId: row.agent_id,
+        eventType: "attested_violation",
+        sourceType: "attestation",
+        sourceId: row.id,
+        severity: flag?.severity as RiskSeverity | undefined,
+        category: flag?.category,
+        requestId: input.requestId,
       },
       client,
     );

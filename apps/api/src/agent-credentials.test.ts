@@ -95,6 +95,7 @@ describe("A. creation and storage", () => {
       "agent:read",
       "risk:read",
       "verification:read",
+      "reputation:read",
     ]);
   });
 

@@ -78,6 +78,29 @@ export interface RiskFlagView {
   status: string;
 }
 
+export interface ReputationEventView {
+  eventId: string;
+  eventType: string;
+  sourceType: string;
+  sourceId: string;
+  impact: number;
+  scoreBefore: number;
+  scoreAfter: number;
+  reasonCode: string;
+  reason: string;
+  version: string;
+  createdAt: string;
+}
+
+export interface AgentReputationView {
+  agentId: string;
+  score: number;
+  trustLevel: string;
+  version: string;
+  updatedAt: string | null;
+  events: ReputationEventView[];
+}
+
 export interface AttestationView {
   attestationId: string;
   flagId: string;

@@ -96,6 +96,7 @@ def test_agent_client_exposes_only_four_capabilities():
         "get_flag",
         "list_events",
         "get_agent",
+        "get_reputation",
         "verify_agent",
         "set_token",
         "last_request_id",

@@ -11,6 +11,7 @@
  */
 import { BondApiError, parseRetryAfter } from "./errors.js";
 import type {
+  AgentReputationView,
   AgentView,
   AnalysisResult,
   ApiEnvelope,
@@ -285,6 +286,12 @@ export class BondClient {
 
   getAgent(id: string): Promise<AgentView> {
     return this.get<AgentView>(`/api/v1/agents/${id}`);
+  }
+
+  getAgentReputation(id: string, limit = 20): Promise<AgentReputationView> {
+    return this.get<AgentReputationView>(
+      `/api/v1/agents/${id}/reputation?limit=${limit}`,
+    );
   }
 
   registerAgent(input: {

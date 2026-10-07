@@ -25,6 +25,15 @@ import {
   transitionAgentService,
 } from "../../services/agents.js";
 import {
+  REPUTATION_BASELINE_SCORE,
+  REPUTATION_VERSION,
+  trustLevelForScore,
+} from "@bond/shared-types";
+import {
+  getAgentReputation,
+  listReputationEvents,
+} from "../../db/stores/reputation.js";
+import {
   fingerprintRequest,
   runIdempotent,
 } from "../../services/idempotency.js";
@@ -105,6 +114,64 @@ agentsRouter.get(
         auth.operatorId,
       );
       res.json({ data: toAgentPrivateView(row) });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * Agent reputation (Phase 21, advisory trust intelligence).
+ * Operators read owned agents; agent credentials with
+ * `reputation:read` read only their own agent. New agents without
+ * history report the documented baseline (no row is written by
+ * reads). History is bounded (limit, newest first, no offsets).
+ */
+agentsRouter.get(
+  "/:id/reputation",
+  requireAgentOrOperator,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const auth = requireAuthContext(req);
+      await requireAgentCapability(req, auth, "reputation:read");
+      requireSelfAgent(auth, req.params.id as string);
+      const agentId = req.params.id as string;
+      await getAgentService(agentId, auth.operatorId);
+      const rawLimit = req.query.limit;
+      let limit = 20;
+      if (rawLimit !== undefined) {
+        limit = Number(rawLimit);
+        if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+          throw new ApiError("INVALID_IDENTIFIER", "Invalid limit");
+        }
+      }
+      const state = await getAgentReputation(agentId);
+      const events = await listReputationEvents(agentId, limit);
+      const score = state === null ? REPUTATION_BASELINE_SCORE : state.score;
+      const trustLevel =
+        state === null ? trustLevelForScore(score) : state.trust_level;
+      res.json({
+        data: {
+          agentId,
+          score,
+          trustLevel,
+          version: state === null ? REPUTATION_VERSION : state.version,
+          updatedAt: state?.updated_at ?? null,
+          events: events.map((e) => ({
+            eventId: e.id,
+            eventType: e.event_type,
+            sourceType: e.source_type,
+            sourceId: e.source_id,
+            impact: e.impact,
+            scoreBefore: e.score_before,
+            scoreAfter: e.score_after,
+            reasonCode: e.reason_code,
+            reason: e.reason,
+            version: e.reputation_version,
+            createdAt: e.created_at,
+          })),
+        },
+      });
     } catch (error) {
       next(error);
     }
