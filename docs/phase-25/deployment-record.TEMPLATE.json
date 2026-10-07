@@ -1,0 +1,18 @@
+{
+  "$schema": "bond-deployment-record-v1",
+  "_comment": "Copy to deployment-record.<network>.json and fill after the wallet-attended deployment ceremony. NON-SECRET metadata only — this file must never contain private keys, wallet secrets, witnesses, salts, or signing material; the verifier rejects it if it does.",
+  "network": "undeployed",
+  "contractAddress": "REPLACE_WITH_DEPLOYED_CONTRACT_ADDRESS",
+  "deploymentTxId": "REPLACE_WITH_DEPLOY_SUBMISSION_TX_ID",
+  "deployedAt": "REPLACE_WITH_ISO_TIMESTAMP",
+  "deployedBy": "REPLACE_WITH_OPERATOR_ID_OR_LABEL (no keys)",
+  "toolchain": {
+    "compactCli": "0.5.3",
+    "compactCompiler": "0.31.1",
+    "midnightJs": "4.1.1",
+    "compactJs": "2.5.1"
+  },
+  "artifactIdentity": "REPLACE_WITH_DESCRIBED_ARTIFACT_SOURCE (e.g. git commit of contracts/managed/bond)",
+  "proofServer": "REPLACE_WITH_PROOF_SERVER_IMAGE_OR_URL",
+  "funding": "REPLACE_WITH_FUNDING_NOTE (network, token, approximate balance — no addresses holding secrets)"
+}
