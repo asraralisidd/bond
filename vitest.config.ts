@@ -10,6 +10,9 @@ export default defineConfig({
       "@bond/risk-engine": fileURLToPath(
         new URL("./packages/risk-engine/src/index.ts", import.meta.url),
       ),
+      "@bond/policy-engine": fileURLToPath(
+        new URL("./packages/policy-engine/src/index.ts", import.meta.url),
+      ),
       "@bond/attestor": fileURLToPath(
         new URL("./packages/attestor/src/index.ts", import.meta.url),
       ),

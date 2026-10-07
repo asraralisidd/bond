@@ -51,8 +51,16 @@ export interface ActivityInput {
   readonly externalDestination?: boolean;
   readonly bytesOut?: number;
   readonly textSnippet?: string;
-  readonly metadata?: Readonly<Record<string, unknown>>;
+  readonly metadata?: Readonly<
+    Record<string, string | number | boolean | null>
+  >;
   readonly reporterSeverity?: ReporterSeverity;
+  readonly provider?: string;
+  readonly model?: string;
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
+  readonly totalTokens?: number;
+  readonly estimatedCostMinorUnits?: string;
   readonly policyContext: ActivityPolicyContext;
 }
 
@@ -71,6 +79,12 @@ export interface BuiltActivity {
     Record<string, string | number | boolean | null>
   >;
   readonly reporterSeverity?: ReporterSeverity;
+  readonly provider?: string;
+  readonly model?: string;
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
+  readonly totalTokens?: number;
+  readonly estimatedCostMinorUnits?: string;
   readonly policyContext: ActivityPolicyContext;
 }
 
@@ -90,6 +104,18 @@ function requireText(value: unknown, field: string, max = 256): string {
     throw invalid(`Invalid activity: ${field} exceeds ${max} characters`);
   }
   return trimmed;
+}
+
+function requireTokens(value: unknown, field: string): number {
+  if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    value < 0 ||
+    value > Number.MAX_SAFE_INTEGER
+  ) {
+    throw invalid(`Invalid activity: ${field} must be a non-negative integer`);
+  }
+  return value;
 }
 
 /**
@@ -159,6 +185,27 @@ export function buildActivity(input: ActivityInput): BuiltActivity {
   }
   if (input.reporterSeverity !== undefined) {
     built.reporterSeverity = input.reporterSeverity;
+  }
+  if (input.provider !== undefined) {
+    built.provider = requireText(input.provider, "provider");
+  }
+  if (input.model !== undefined) {
+    built.model = requireText(input.model, "model");
+  }
+  if (input.inputTokens !== undefined) {
+    built.inputTokens = requireTokens(input.inputTokens, "inputTokens");
+  }
+  if (input.outputTokens !== undefined) {
+    built.outputTokens = requireTokens(input.outputTokens, "outputTokens");
+  }
+  if (input.totalTokens !== undefined) {
+    built.totalTokens = requireTokens(input.totalTokens, "totalTokens");
+  }
+  if (input.estimatedCostMinorUnits !== undefined) {
+    built.estimatedCostMinorUnits = requireText(
+      input.estimatedCostMinorUnits,
+      "estimatedCostMinorUnits",
+    );
   }
   return built;
 }

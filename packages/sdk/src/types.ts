@@ -66,6 +66,20 @@ export interface AnalysisResult {
   analysisId: string;
   flagIds: string[];
   score: RiskScoreView | null;
+  policy?: {
+    allowed: boolean;
+    policyVersion: string;
+    source: string;
+    violations: {
+      ruleId: string;
+      severity: string;
+      category: string;
+      reasonCode: string;
+      observed: string;
+      limit: string;
+      explanation: string;
+    }[];
+  };
 }
 
 export interface RiskFlagView {
@@ -99,6 +113,38 @@ export interface AgentReputationView {
   version: string;
   updatedAt: string | null;
   events: ReputationEventView[];
+}
+
+export interface AgentPolicyInput {
+  allowedActions?: readonly string[];
+  deniedActions?: readonly string[];
+  allowedTools?: readonly string[];
+  deniedTools?: readonly string[];
+  allowedProviders?: readonly string[];
+  deniedProviders?: readonly string[];
+  allowedModels?: readonly string[];
+  deniedModels?: readonly string[];
+  maxInputTokens?: number;
+  maxOutputTokens?: number;
+  maxTotalTokens?: number;
+  maxTotalTokensPerWindow?: number;
+  tokenWindowSeconds?: number;
+  maxRequestsPerWindow?: number;
+  requestWindowSeconds?: number;
+  maxCostMinorUnitsPerRequest?: string;
+  maxCostMinorUnitsPerWindow?: string;
+  costWindowSeconds?: number;
+  maxTransferMinorUnits?: string;
+}
+
+export interface AgentPolicyView {
+  policyId: string;
+  agentId: string;
+  version: number;
+  status: string;
+  fields: Record<string, unknown>;
+  createdBy: string;
+  createdAt: string;
 }
 
 export interface AttestationView {

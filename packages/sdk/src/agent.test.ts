@@ -125,6 +125,7 @@ describe("BondAgentClient surface", () => {
         "analyzeActivity",
         "getAgent",
         "getFlag",
+        "getPolicy",
         "getReputation",
         "lastRequestId",
         "listEvents",

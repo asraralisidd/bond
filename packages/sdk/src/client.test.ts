@@ -374,6 +374,10 @@ describe("method coverage", () => {
       ["listSetupGrants", client.listSetupGrants()],
       ["revokeSetupGrant", client.revokeSetupGrant("grant_1")],
       ["getAgentReputation", client.getAgentReputation("a")],
+      ["createAgentPolicy", client.createAgentPolicy("a", {})],
+      ["getAgentPolicy", client.getAgentPolicy("a")],
+      ["updateAgentPolicy", client.updateAgentPolicy("a", 1, {})],
+      ["listAgentPolicyHistory", client.listAgentPolicyHistory("a")],
     ];
     for (const [, promise] of calls) {
       await promise;

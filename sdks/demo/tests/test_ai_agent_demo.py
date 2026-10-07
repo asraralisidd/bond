@@ -34,6 +34,15 @@ class StubClient:
             "secret": "grant-secret-xyz",
         }
 
+    def create_agent_policy(self, agent_id, policy, **kwargs):
+        self.calls.append(("create_agent_policy", agent_id))
+        return {
+            "policyId": "pol-ai-1",
+            "agentId": agent_id,
+            "version": 1,
+            "status": "active",
+        }
+
     def health(self):
         self.calls.append("health")
         return {"status": "ok"}
@@ -176,6 +185,16 @@ def behavioral_config():
         external_key="ai-demo-operator",
         mode="scripted",
         scenario="behavioral",
+    )
+
+
+def policy_config():
+    return AIDemoConfig(
+        api_url="http://localhost:4000",
+        dev_auth_token="SECRET-TOKEN-XYZ",
+        external_key="ai-demo-operator",
+        mode="scripted",
+        scenario="policy",
     )
 
 
@@ -601,5 +620,74 @@ def test_behavioral_flow_reports_rule_ids_and_versions():
     ):
         assert rule_id in text, rule_id
     assert "ruleset-v2" in text
+    assert "grant-secret-xyz" not in text
+    assert "agent-secret-xyz" not in text
+
+
+def test_policy_flow_covers_scenarios_a_through_e():
+    calls = {"n": 0}
+
+    class PolicyAgentClient(StubClient):
+        def analyze_activity(self, agent_id, activity):
+            self.calls.append(("analyze_activity", activity["actionType"]))
+            calls["n"] += 1
+            n = calls["n"]
+            violations: list = []
+            flag_ids: list = []
+            if n == 2:
+                violations = [{"ruleId": "policy-model-denied"}]
+                flag_ids = ["rf-01234567-policy-model-denied"]
+            elif n == 3:
+                violations = [{"ruleId": "policy-input-token-limit"}]
+                flag_ids = ["rf-01234567-policy-input-token-limit"]
+            elif n == 4:
+                violations = [{"ruleId": "policy-cost-limit"}]
+                flag_ids = ["rf-01234567-policy-cost-limit"]
+            elif n >= 11:
+                violations = [{"ruleId": "policy-request-rate-limit"}]
+                flag_ids = [
+                    "rf-01234567-policy-request-rate-limit",
+                    "rf-01234567-activity-burst",
+                ]
+            return {
+                "analysisId": f"an-pol-{n}",
+                "score": {"score": 40},
+                "flagIds": flag_ids,
+                "policy": {
+                    "allowed": not violations,
+                    "policyVersion": "agent-policy-v1",
+                    "violations": violations,
+                },
+            }
+
+    client = StubClient()
+    agent_stub = PolicyAgentClient()
+    out = io.StringIO()
+    summary = AIAgent(
+        policy_config(),
+        client,
+        ScriptedModelProvider("policy"),
+        agent_client_factory=lambda base_url, token: agent_stub,
+        grant_client_factory=lambda base_url, token: StubClient(),
+    ).run(out=out)
+    assert summary["policyVersion"] == 1
+    labels = [r["label"] for r in summary["policyScenarioResults"]]
+    assert labels[:4] == ["A-compliant", "B-model", "C-tokens", "D-cost"]
+    assert len(summary["policyScenarioResults"]) == 12
+    assert summary["policyScenarioResults"][0]["allowed"] is True
+    assert (
+        "policy-model-denied"
+        in summary["policyScenarioResults"][1]["violations"]
+    )
+    assert (
+        "policy-request-rate-limit"
+        in summary["policyScenarioResults"][-1]["violations"]
+    )
+    assert summary["policyBurstSeen"] is True
+    assert summary["credentialRevoked"] is True
+    assert ("create_agent_policy", "agent-ai-1") in client.calls
+    text = out.getvalue()
+    assert "policy-request-rate-limit" in text
+    assert "activity-burst" in text
     assert "grant-secret-xyz" not in text
     assert "agent-secret-xyz" not in text

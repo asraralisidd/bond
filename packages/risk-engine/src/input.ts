@@ -90,6 +90,15 @@ export interface RawActivityInput {
   readonly textSnippet?: string;
   readonly metadata?: Readonly<Record<string, unknown>>;
   readonly reporterSeverity?: ReporterSeverity;
+  /** Provider-agnostic model attribution (adapter-supplied). */
+  readonly provider?: string;
+  readonly model?: string;
+  /** Normalized usage counters (adapter-supplied, non-negative ints). */
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
+  readonly totalTokens?: number;
+  /** Adapter-reported cost estimate in minor units (digits, opaque). */
+  readonly estimatedCostMinorUnits?: string;
   readonly policyContext: PolicyContext;
 }
 
@@ -111,6 +120,15 @@ export interface NormalizedActivity {
   /** Metadata keys dropped as secret-like (for audit, not content). */
   readonly redactedFields: readonly string[];
   readonly reporterSeverity: ReporterSeverity | null;
+  /** Provider-agnostic model attribution (null when not reported). */
+  readonly provider: string | null;
+  readonly model: string | null;
+  /** Normalized usage counters (null when not reported). */
+  readonly inputTokens: number | null;
+  readonly outputTokens: number | null;
+  readonly totalTokens: number | null;
+  /** Adapter-reported cost estimate (null when not reported). */
+  readonly estimatedCostMinorUnits: string | null;
   readonly policyContext: NormalizedPolicyContext;
 }
 
@@ -152,6 +170,30 @@ function requireNonEmptyString(value: unknown, field: string): string {
     fail(field, value);
   }
   return trimmed;
+}
+
+/** Optional usage counters: non-negative safe integers only. */
+function requireOptionalTokens(value: unknown, field: string): number | null {
+  if (value === undefined) {
+    return null;
+  }
+  if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    value < 0 ||
+    value > Number.MAX_SAFE_INTEGER
+  ) {
+    fail(field, value);
+  }
+  return value as number;
+}
+
+/** Optional adapter-reported cost: digit string, opaque minor units. */
+function requireCost(value: unknown): string | null {
+  if (typeof value !== "string" || !/^[0-9]+$/.test(value)) {
+    fail("estimatedCostMinorUnits", value);
+  }
+  return value as string;
 }
 
 function normalizeMetadata(
@@ -232,6 +274,21 @@ export function normalizeActivity(raw: RawActivityInput): NormalizedActivity {
     metadata,
     redactedFields: redacted,
     reporterSeverity: raw.reporterSeverity ?? null,
+    provider:
+      raw.provider === undefined
+        ? null
+        : requireNonEmptyString(raw.provider, "provider"),
+    model:
+      raw.model === undefined
+        ? null
+        : requireNonEmptyString(raw.model, "model"),
+    inputTokens: requireOptionalTokens(raw.inputTokens, "inputTokens"),
+    outputTokens: requireOptionalTokens(raw.outputTokens, "outputTokens"),
+    totalTokens: requireOptionalTokens(raw.totalTokens, "totalTokens"),
+    estimatedCostMinorUnits:
+      raw.estimatedCostMinorUnits === undefined
+        ? null
+        : requireCost(raw.estimatedCostMinorUnits),
     policyContext: {
       policyVersion,
       allowedActions: (policy as PolicyContext).allowedActions

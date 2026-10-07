@@ -65,6 +65,19 @@ def _require_text(value: object, field_name: str, max_length: int = 256) -> str:
     return trimmed
 
 
+def _require_tokens(value: object, field_name: str) -> int:
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or value < 0
+        or value > 2**53 - 1
+    ):
+        raise _invalid(
+            f"Invalid activity: {field_name} must be a non-negative integer"
+        )
+    return value
+
+
 @dataclass(frozen=True)
 class ActivityPolicyContext:
     """Versioned policy supplied by the caller (not engine config)."""
@@ -112,6 +125,12 @@ class ActivityInput:
     text_snippet: str | None = None
     metadata: dict[str, object] | None = None
     reporter_severity: ReporterSeverity | None = None
+    provider: str | None = None
+    model: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_tokens: int | None = None
+    estimated_cost_minor_units: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         """Build validated payload with exact BOND JSON keys."""
@@ -161,6 +180,26 @@ class ActivityInput:
             payload["metadata"] = safe_metadata
         if self.reporter_severity is not None:
             payload["reporterSeverity"] = self.reporter_severity
+        if self.provider is not None:
+            payload["provider"] = _require_text(self.provider, "provider")
+        if self.model is not None:
+            payload["model"] = _require_text(self.model, "model")
+        if self.input_tokens is not None:
+            payload["inputTokens"] = _require_tokens(
+                self.input_tokens, "inputTokens"
+            )
+        if self.output_tokens is not None:
+            payload["outputTokens"] = _require_tokens(
+                self.output_tokens, "outputTokens"
+            )
+        if self.total_tokens is not None:
+            payload["totalTokens"] = _require_tokens(
+                self.total_tokens, "totalTokens"
+            )
+        if self.estimated_cost_minor_units is not None:
+            payload["estimatedCostMinorUnits"] = _require_text(
+                self.estimated_cost_minor_units, "estimatedCostMinorUnits"
+            )
         return payload
 
 

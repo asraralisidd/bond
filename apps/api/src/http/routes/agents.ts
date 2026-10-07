@@ -37,6 +37,12 @@ import {
   fingerprintRequest,
   runIdempotent,
 } from "../../services/idempotency.js";
+import {
+  createPolicyService,
+  getPolicyService,
+  listPolicyHistoryService,
+  updatePolicyService,
+} from "../../services/policies.js";
 import { getRequestId } from "../request-id.js";
 
 export const agentsRouter = Router();
@@ -193,6 +199,114 @@ agentsRouter.patch(
         getRequestId(req),
       );
       res.json({ data: toAgentPrivateView(row) });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * Agent policy management (Phase 22, operator-controlled).
+ * Mutations are operator-only (setup-grant bearers fail at
+ * requireOperator); agents with `agent:read` may read their own
+ * effective policy but can never mutate it. Versions are immutable:
+ * PATCH amends by creating the next version behind an
+ * expectedVersion gate (stale writes get 409, never silent loss).
+ */
+agentsRouter.post(
+  "/:id/policy",
+  requireAuth,
+  rateLimitFor("mutation"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const auth = requireOperator(req);
+      const body = req.body as { policy?: unknown };
+      const outcome = await runIdempotent({
+        key: req.headers["idempotency-key"] as string | undefined,
+        operatorId: auth.operatorId,
+        route: "POST /api/v1/agents/:id/policy",
+        fingerprint: fingerprintRequest("POST /api/v1/agents/:id/policy", body),
+        execute: async () =>
+          createPolicyService({
+            operatorId: auth.operatorId,
+            agentId: req.params.id as string,
+            policy: (body.policy ?? {}) as never,
+            requestId: getRequestId(req),
+          }),
+      });
+      res.status(outcome.replayed ? 200 : 201).json({ data: outcome.body });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+agentsRouter.get(
+  "/:id/policy",
+  requireAgentOrOperator,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const auth = requireAuthContext(req);
+      await requireAgentCapability(req, auth, "agent:read");
+      requireSelfAgent(auth, req.params.id as string);
+      const view = await getPolicyService({
+        operatorId: auth.operatorId,
+        agentId: req.params.id as string,
+      });
+      if (!view) {
+        throw new ApiError("NOT_FOUND", "No active policy for agent");
+      }
+      res.json({ data: view });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+agentsRouter.patch(
+  "/:id/policy",
+  requireAuth,
+  rateLimitFor("mutation"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const auth = requireOperator(req);
+      const body = req.body as { expectedVersion?: unknown; policy?: unknown };
+      const outcome = await updatePolicyService({
+        operatorId: auth.operatorId,
+        agentId: req.params.id as string,
+        expectedVersion: body.expectedVersion as number,
+        patch: (body.policy ?? {}) as never,
+        requestId: getRequestId(req),
+      });
+      res.json({ data: outcome });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+agentsRouter.get(
+  "/:id/policy/history",
+  requireAgentOrOperator,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const auth = requireAuthContext(req);
+      await requireAgentCapability(req, auth, "agent:read");
+      requireSelfAgent(auth, req.params.id as string);
+      const rawLimit = req.query.limit;
+      let limit = 20;
+      if (rawLimit !== undefined) {
+        limit = Number(rawLimit);
+        if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+          throw new ApiError("INVALID_IDENTIFIER", "Invalid limit");
+        }
+      }
+      const views = await listPolicyHistoryService({
+        operatorId: auth.operatorId,
+        agentId: req.params.id as string,
+        limit,
+      });
+      res.json({ data: views });
     } catch (error) {
       next(error);
     }
