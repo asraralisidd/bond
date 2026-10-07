@@ -201,6 +201,8 @@ export async function insertLedgerActivity(
     readonly outputTokens?: number | null;
     readonly totalTokens?: number | null;
     readonly costMinorUnits?: string | null;
+    readonly requesterAgentId?: string | null;
+    readonly delegationId?: string | null;
   },
   client?: PoolClient,
 ): Promise<void> {
@@ -209,8 +211,10 @@ export async function insertLedgerActivity(
        (analysis_id, agent_id, action_type, action, tool,
         amount_minor_units, bytes_out, occurred_at,
         provider, model, input_tokens, output_tokens,
-        total_tokens, cost_minor_units)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        total_tokens, cost_minor_units,
+        requester_agent_id, delegation_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+        $15, $16)
       ON CONFLICT (analysis_id) DO NOTHING`,
     [
       input.analysisId,
@@ -227,6 +231,8 @@ export async function insertLedgerActivity(
       input.outputTokens ?? null,
       input.totalTokens ?? null,
       input.costMinorUnits ?? null,
+      input.requesterAgentId ?? null,
+      input.delegationId ?? null,
     ],
     client,
   );

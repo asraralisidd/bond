@@ -54,11 +54,17 @@ import type { PolicyDecision, PolicyUsageWindow } from "@bond/policy-engine";
 import { randomUUID } from "node:crypto";
 import {
   createRiskFlag,
+  deriveAttribution,
   parseAgentId,
   parseRiskFlagId,
   transitionAgentStatus,
 } from "@bond/shared-types";
-import type { AgentStatus, RiskCategory, RiskFlag } from "@bond/shared-types";
+import type {
+  AgentStatus,
+  DelegationAttribution,
+  RiskCategory,
+  RiskFlag,
+} from "@bond/shared-types";
 import { getAgentService } from "./agents.js";
 import { ApiError } from "../http/errors.js";
 import { withTransaction } from "../db/pool.js";
@@ -66,6 +72,7 @@ import type { PoolClient } from "pg";
 import { updateAgentStatus } from "../db/stores/registry.js";
 import { recordEvent } from "./events.js";
 import { applyReputationEventService } from "./reputation.js";
+import { authorizeDelegatedUse } from "./delegations.js";
 import { getActivePolicyForAnalysis, policyVersionLabel } from "./policies.js";
 import type { ResolvedAgentPolicy } from "@bond/policy-engine";
 import {
@@ -91,6 +98,8 @@ export interface AnalyzeActivityInput {
   readonly operatorId: string;
   readonly agentId: string;
   readonly activity: Omit<RawActivityInput, "agentId">;
+  /** Delegation authorizing this submission (executor = agentId). */
+  readonly delegationId?: string | null;
   readonly requestId?: string | null;
 }
 
@@ -234,6 +243,7 @@ export async function analyzeActivityService(
   flagIds: string[];
   score: unknown;
   policy: PolicyDecisionDto;
+  attribution: DelegationAttribution;
 }> {
   const agent = await getAgentService(input.agentId, input.operatorId);
   // Persisted policy (if any) governs: its fields override the
@@ -269,6 +279,41 @@ export async function analyzeActivityService(
   });
   const evidence = deriveEvidence(normalized);
   const nowMs = Date.now();
+  // Delegated submission: the authenticated agent (executor) acts
+  // under a delegation. Attribution is derived server-side from the
+  // delegation record — clients can never assert requester identity.
+  // The executor's own policy governs; scope was already enforced
+  // here, before any risk evaluation runs.
+  let authorized: { delegationId: string; delegatorAgentId: string } | null =
+    null;
+  if (input.delegationId !== undefined && input.delegationId !== null) {
+    const granted = await authorizeDelegatedUse({
+      delegateAgentId: input.agentId,
+      delegationId: input.delegationId,
+      requiredCapability: "activity:submit",
+      operation: {
+        actionType: normalized.actionType,
+        tool: normalized.tool,
+        model: normalized.model,
+        provider: normalized.provider,
+      },
+      requestId: input.requestId ?? undefined,
+    });
+    authorized = {
+      delegationId: granted.delegationId,
+      delegatorAgentId: granted.delegatorAgentId,
+    };
+  }
+  const attribution: DelegationAttribution = deriveAttribution({
+    executorAgentId: input.agentId,
+    delegation:
+      authorized === null
+        ? null
+        : {
+            id: authorized.delegationId,
+            delegatorAgentId: authorized.delegatorAgentId,
+          },
+  });
   const thresholds = normalized.policyContext.behavioralThresholds;
   const maxWindowMs =
     Math.max(
@@ -290,6 +335,7 @@ export async function analyzeActivityService(
     flagIds: string[];
     score: unknown;
     policy: PolicyDecisionDto;
+    attribution: DelegationAttribution;
   };
   try {
     outcome = await withTransaction(async (client) => {
@@ -470,7 +516,15 @@ export async function analyzeActivityService(
             agentId: input.agentId,
             actor: "system:risk-engine",
             requestId: input.requestId,
-            payload: { riskFlagId: flag.riskFlagId, severity: flag.severity },
+            payload:
+              attribution.delegationId === null
+                ? { riskFlagId: flag.riskFlagId, severity: flag.severity }
+                : {
+                    riskFlagId: flag.riskFlagId,
+                    severity: flag.severity,
+                    requesterAgentId: attribution.requesterAgentId,
+                    delegationId: attribution.delegationId,
+                  },
           },
           client,
         );
@@ -508,6 +562,8 @@ export async function analyzeActivityService(
           outputTokens: normalized.outputTokens,
           totalTokens: normalized.totalTokens,
           costMinorUnits: normalized.estimatedCostMinorUnits,
+          requesterAgentId: attribution.requesterAgentId,
+          delegationId: attribution.delegationId,
         },
         client,
       );
@@ -547,6 +603,7 @@ export async function analyzeActivityService(
         analysisId: result.analysisId,
         flagIds,
         score: finalScore,
+        attribution,
         policy: {
           allowed: decision.allowed,
           policyVersion: decision.policyVersion,

@@ -310,6 +310,37 @@ class BondClient:
             f"/api/v1/agents/{agent_id}/policy/history?limit={limit}"
         )
 
+    def create_delegation(
+        self, delegator_agent_id: str, delegation: dict[str, Any]
+    ) -> Any:
+        """Create a delegation (operator or delegator agent)."""
+        return self._post(
+            f"/api/v1/agents/{delegator_agent_id}/delegations", delegation
+        )
+
+    def list_delegations(
+        self, agent_id: str, role: str = "all", live_only: bool = True
+    ) -> Any:
+        """List delegations involving an agent."""
+        live = "true" if live_only else "false"
+        return self._get(
+            f"/api/v1/agents/{agent_id}/delegations"
+            f"?role={role}&live={live}"
+        )
+
+    def get_delegation(self, delegation_id: str) -> Any:
+        """Fetch one delegation (delegator, delegate, or operator)."""
+        return self._get(f"/api/v1/delegations/{delegation_id}")
+
+    def revoke_delegation(
+        self, delegation_id: str, reason: str | None = None
+    ) -> Any:
+        """Revoke a delegation (delegator or its operator; idempotent)."""
+        return self._post(
+            f"/api/v1/delegations/{delegation_id}/revoke",
+            {"reason": reason},
+        )
+
     def register_agent(
         self,
         *,
@@ -452,15 +483,25 @@ class BondClient:
 
     # -- Risk ---------------------------------------------------------------
 
-    def analyze_activity(self, agent_id: str, activity: dict[str, Any]) -> Any:
+    def analyze_activity(
+        self,
+        agent_id: str,
+        activity: dict[str, Any],
+        delegation_id: str | None = None,
+    ) -> Any:
         """Submit activity for analysis. Agent use: reportActivity.
 
         Accepts a dict produced by :func:`activity.ActivityInput.to_dict`
         (or an equivalent hand-built RawActivityInput payload).
+        Pass ``delegation_id`` to act under a delegation; attribution
+        is derived server-side, never from client claims.
         """
+        payload: dict[str, Any] = {"agentId": agent_id, "activity": activity}
+        if delegation_id is not None:
+            payload["delegationId"] = delegation_id
         return self._post(
             "/api/v1/risk/analyses",
-            {"agentId": agent_id, "activity": activity},
+            payload,
             idempotent=True,
         )
 

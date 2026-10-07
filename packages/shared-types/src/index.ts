@@ -23,6 +23,7 @@ export * from "./risk-flag.js";
 export * from "./attestation.js";
 export * from "./slash-event.js";
 export * from "./reputation.js";
+export * from "./delegation.js";
 export * from "./transaction.js";
 export * from "./events.js";
 export * from "./projections.js";

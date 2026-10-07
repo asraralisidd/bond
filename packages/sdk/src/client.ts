@@ -14,6 +14,8 @@ import type {
   AgentReputationView,
   AgentPolicyInput,
   AgentPolicyView,
+  DelegationInput,
+  DelegationView,
   AgentView,
   AnalysisResult,
   ApiEnvelope,
@@ -464,10 +466,13 @@ export class BondClient {
   analyzeActivity(
     agentId: string,
     activity: Record<string, unknown> | BuiltActivity,
+    delegationId?: string,
   ): Promise<AnalysisResult> {
     return this.post<AnalysisResult>(
       "/api/v1/risk/analyses",
-      { agentId, activity },
+      delegationId === undefined
+        ? { agentId, activity }
+        : { agentId, activity, delegationId },
       true,
     );
   }
@@ -476,6 +481,36 @@ export class BondClient {
     return this.get<RiskFlagView[]>(
       `/api/v1/risk/flags?agentId=${encodeURIComponent(agentId)}`,
     );
+  }
+
+  createDelegation(
+    delegatorAgentId: string,
+    input: DelegationInput,
+  ): Promise<DelegationView> {
+    return this.post<DelegationView>(
+      `/api/v1/agents/${delegatorAgentId}/delegations`,
+      input,
+    );
+  }
+
+  listDelegations(
+    agentId: string,
+    role: "all" | "delegator" | "delegate" = "all",
+    liveOnly = true,
+  ): Promise<DelegationView[]> {
+    return this.get<DelegationView[]>(
+      `/api/v1/agents/${agentId}/delegations?role=${role}&live=${liveOnly}`,
+    );
+  }
+
+  getDelegation(id: string): Promise<DelegationView> {
+    return this.get<DelegationView>(`/api/v1/delegations/${id}`);
+  }
+
+  revokeDelegation(id: string, reason?: string): Promise<DelegationView> {
+    return this.post<DelegationView>(`/api/v1/delegations/${id}/revoke`, {
+      reason,
+    });
   }
 
   getFlag(id: string): Promise<RiskFlagView> {

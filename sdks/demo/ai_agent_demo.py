@@ -90,7 +90,7 @@ class ScriptedModelProvider:
     """
 
     def __init__(self, scenario: str) -> None:
-        if scenario not in ("benign", "risky", "behavioral", "reputation", "policy"):
+        if scenario not in ("benign", "risky", "behavioral", "reputation", "policy", "delegation"):
             raise BondApiError(
                 "INVALID_IDENTIFIER",
                 f"Unknown demo scenario: {scenario}",
@@ -275,6 +275,8 @@ class AIAgent:
             self._config.dev_auth_token, self._config.external_key
         )
         self._client.set_token(session["token"])
+        if self._config.scenario == "delegation":
+            return self._run_delegation(emit, summary)
         external_ref = (
             BENIGN_REF
             if self._config.scenario == "benign"
@@ -867,11 +869,193 @@ class AIAgent:
         emit("Policy + Behavioral (scenario E):")
         emit("  policy-request-rate-limit + activity-burst observed")
 
+    def _run_delegation(
+        self, emit: EmitFn, summary: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Coordinator/worker delegation lifecycle (Phase 23, scripted).
+
+        A = coordinator (holds activity:submit), B = worker (holds
+        only agent:read until delegated). Steps: delegate → allowed
+        operation (SUCCESS) → out-of-scope attempt (DENIED) → revoke
+        → retry (DENIED) → policy violation under a fresh delegation
+        (Policy → Risk → flag). Secrets stay in memory; both
+        credentials are revoked at the end.
+        """
+        agent_a = self._register("ai-demo-agent-delegator-v1")
+        agent_b = self._register("ai-demo-agent-delegate-v1")
+        agent_a_id = agent_a["agentId"]
+        agent_b_id = agent_b["agentId"]
+        summary["delegatorAgentId"] = agent_a_id
+        summary["delegateAgentId"] = agent_b_id
+        emit("")
+        emit("Coordinator:")
+        emit(f"  ID: {agent_a_id}")
+        emit("Worker:")
+        emit(f"  ID: {agent_b_id}")
+
+        client_a, cred_a = self._issue_agent_credential(
+            agent_a_id, ["activity:submit", "risk:read"]
+        )
+        client_b, cred_b = self._issue_agent_credential(
+            agent_b_id, ["agent:read"]
+        )
+        summary["credentialRevoked"] = False
+        try:
+            delegation = client_a.create_delegation(
+                agent_a_id,
+                {
+                    "delegateAgentId": agent_b_id,
+                    "capabilities": ["activity:submit"],
+                    "expiresAt": "2026-12-31T00:00:00.000Z",
+                    "scope": {"tools": ["transfers"]},
+                },
+            )
+            delegation_id = delegation["delegationId"]
+            summary["delegationId"] = delegation_id
+            emit("")
+            emit("Delegation:")
+            emit(f"  ID: {delegation_id}")
+            emit(f"  capabilities: {delegation['capabilities']}")
+            emit(f"  status: {delegation['status']}")
+
+            def submit(label: str, tool: str) -> dict[str, Any]:
+                activity = build_activity(
+                    agent_id=agent_b_id,
+                    action_type="transfer",
+                    action="pay-vendor",
+                    policy_context=_policy(True),
+                    amount_minor_units="100",
+                    tool=tool,
+                    occurred_at=FIXED_OCCURRED_AT,
+                )
+                try:
+                    outcome = client_b.analyze_activity(
+                        agent_b_id, activity, delegation_id=delegation_id
+                    )
+                except BondApiError as exc:
+                    emit(f"  {label}: DENIED ({exc.code})")
+                    return {"denied": True, "code": exc.code}
+                attribution = outcome.get("attribution") or {}
+                emit(
+                    f"  {label}: SUCCESS "
+                    f"(requester={attribution.get('requesterAgentId') == agent_a_id}, "
+                    f"executor={attribution.get('executorAgentId') == agent_b_id})"
+                )
+                return {"denied": False, "outcome": outcome}
+
+            emit("")
+            emit("Operations:")
+            allowed = submit("allowed-transfer", "transfers")
+            if allowed["denied"]:
+                raise BondApiError(
+                    "INVALID_ACTIVITY_INPUT",
+                    "Delegated in-scope operation was denied.",
+                    0,
+                    None,
+                )
+            summary["attribution"] = allowed["outcome"]["attribution"]
+            scoped = submit("out-of-scope-tool", "shell-exec")
+            if not scoped["denied"]:
+                raise BondApiError(
+                    "INVALID_ACTIVITY_INPUT",
+                    "Out-of-scope delegated operation was allowed.",
+                    0,
+                    None,
+                )
+
+            revoked = client_a.revoke_delegation(
+                delegation_id, reason="demo complete"
+            )
+            emit("")
+            emit("Revocation:")
+            emit(f"  status: {revoked['status']}")
+            retried = submit("post-revoke-transfer", "transfers")
+            if not retried["denied"]:
+                raise BondApiError(
+                    "INVALID_ACTIVITY_INPUT",
+                    "Revoked delegation still authorized use.",
+                    0,
+                    None,
+                )
+
+            # Policy violation under a fresh delegation: install a
+            # tool deny plus a token cap on the worker, delegate again,
+            # submit over both. The deny surfaces through the v1
+            # effective context; the token breach through the policy
+            # evaluator — both become ordinary risk flags.
+            self._client.create_agent_policy(
+                agent_b_id,
+                {"deniedTools": ["transfers"], "maxInputTokens": 100},
+            )
+            delegation2 = client_a.create_delegation(
+                agent_a_id,
+                {
+                    "delegateAgentId": agent_b_id,
+                    "capabilities": ["activity:submit"],
+                    "expiresAt": "2026-12-31T00:00:00.000Z",
+                },
+            )
+            summary["policyDelegationId"] = delegation2["delegationId"]
+            activity = build_activity(
+                agent_id=agent_b_id,
+                action_type="transfer",
+                action="pay-vendor",
+                policy_context=_policy(True),
+                amount_minor_units="100",
+                tool="transfers",
+                input_tokens=5000,
+                total_tokens=5000,
+                occurred_at=FIXED_OCCURRED_AT,
+            )
+            outcome = client_b.analyze_activity(
+                agent_b_id,
+                activity,
+                delegation_id=delegation2["delegationId"],
+            )
+            decision = outcome.get("policy") or {}
+            violations = [
+                str(v.get("ruleId"))
+                for v in (decision.get("violations") or [])
+                if isinstance(v, dict)
+            ]
+            summary["policyViolations"] = violations
+            summary["policyFlagIds"] = outcome.get("flagIds") or []
+            emit("")
+            emit("Policy Under Delegation:")
+            emit(f"  violations={','.join(violations) or 'none'}")
+            emit(f"  flags={len(summary['policyFlagIds'])}")
+            if not violations or not summary["policyFlagIds"]:
+                raise BondApiError(
+                    "INVALID_ACTIVITY_INPUT",
+                    "Policy violation under delegation produced no "
+                    "violations/flags.",
+                    0,
+                    None,
+                )
+            emit("")
+            emit("Enforcement:")
+            emit("  not-applicable (delegation findings are advisory)")
+            return summary
+        finally:
+            revoked_all = True
+            for agent_id, credential_id in (
+                (agent_a_id, cred_a),
+                (agent_b_id, cred_b),
+            ):
+                try:
+                    self._client.revoke_agent_credential(
+                        agent_id, credential_id
+                    )
+                except Exception:
+                    revoked_all = False
+            summary["credentialRevoked"] = revoked_all
+
     def _issue_agent_credential(
-        self, agent_id: str
+        self, agent_id: str, capabilities: list[str] | None = None
     ) -> tuple[BondAgentClient, str]:
         """Operator creates a credential; agent acts through BondAgentClient."""
-        created = self._client.create_agent_credential(agent_id)
+        extra = {} if capabilities is None else {"capabilities": capabilities}
+        created = self._client.create_agent_credential(agent_id, **extra)
         metadata = created["metadata"]
         secret = created["secret"]
         credential_id = metadata["credentialId"]
@@ -1106,7 +1290,7 @@ def main(argv: list[str] | None = None) -> int:
     client: BondClient | None = None
     try:
         config = AIDemoConfig.from_env()
-        if config.scenario not in ("benign", "risky", "behavioral", "reputation", "policy"):
+        if config.scenario not in ("benign", "risky", "behavioral", "reputation", "policy", "delegation"):
             raise BondApiError(
                 "INVALID_IDENTIFIER",
                 f"Unknown BOND_DEMO_SCENARIO: {config.scenario}.",

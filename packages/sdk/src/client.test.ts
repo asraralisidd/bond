@@ -378,6 +378,17 @@ describe("method coverage", () => {
       ["getAgentPolicy", client.getAgentPolicy("a")],
       ["updateAgentPolicy", client.updateAgentPolicy("a", 1, {})],
       ["listAgentPolicyHistory", client.listAgentPolicyHistory("a")],
+      [
+        "createDelegation",
+        client.createDelegation("a", {
+          delegateAgentId: "b",
+          capabilities: ["activity:submit"],
+          expiresAt: "2026-12-31T00:00:00.000Z",
+        }),
+      ],
+      ["listDelegations", client.listDelegations("a")],
+      ["getDelegation", client.getDelegation("d")],
+      ["revokeDelegation", client.revokeDelegation("d")],
     ];
     for (const [, promise] of calls) {
       await promise;

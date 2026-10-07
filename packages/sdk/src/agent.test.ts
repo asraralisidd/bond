@@ -123,13 +123,17 @@ describe("BondAgentClient surface", () => {
     expect(names.sort()).toEqual(
       [
         "analyzeActivity",
+        "createDelegation",
         "getAgent",
+        "getDelegation",
         "getFlag",
         "getPolicy",
         "getReputation",
         "lastRequestId",
+        "listDelegations",
         "listEvents",
         "listFlags",
+        "revokeDelegation",
         "setToken",
         "verifyAgent",
       ].sort(),
