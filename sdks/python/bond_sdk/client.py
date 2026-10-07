@@ -412,6 +412,25 @@ class BondClient:
     def get_flag(self, flag_id: str) -> Any:
         return self._get(f"/api/v1/risk/flags/{flag_id}")
 
+    def list_events(
+        self,
+        limit: int | None = None,
+        cursor: str | None = None,
+        event_type: str | None = None,
+    ) -> Any:
+        """Poll the authorization-scoped event feed."""
+        params: dict[str, str] = {}
+        if limit is not None:
+            params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
+        if event_type is not None:
+            params["type"] = event_type
+        query = "&".join(
+            f"{key}={quote(value, safe='')}" for key, value in params.items()
+        )
+        return self._get(f"/api/v1/events{('?' + query) if query else ''}")
+
     # -- Attestors / attestations ---------------------------------------------
     # Operator- and attestor-scoped; included for surface parity. External
     # agents report activity and read status — they never submit verdicts.

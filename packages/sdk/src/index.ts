@@ -42,4 +42,6 @@ export type {
   PublicEligibilityView,
   HealthView,
   ReadyView,
+  EventFeedItem,
+  EventFeedPage,
 } from "./types.js";

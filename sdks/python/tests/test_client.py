@@ -290,3 +290,18 @@ def test_attestor_secret_header_only():
     assert seen[0].headers["X-Attestor-Secret"] == "shh-secret"
     assert "shh-secret" not in seen[0].content.decode()
     assert "Authorization" not in seen[0].headers
+
+
+def test_list_events_query_building():
+    client, seen = make_client(
+        lambda req: json_response(200, {"data": {"events": [], "nextCursor": None}})
+    )
+    page = client.list_events(limit=10, cursor="abc123", event_type="RISK_FLAG_RAISED")
+    assert page == {"events": [], "nextCursor": None}
+    assert (
+        str(seen[0].url)
+        == "https://api.example/api/v1/events?limit=10&cursor=abc123&type=RISK_FLAG_RAISED"
+    )
+    bare = client.list_events()
+    assert bare == {"events": [], "nextCursor": None}
+    assert str(seen[1].url) == "https://api.example/api/v1/events"

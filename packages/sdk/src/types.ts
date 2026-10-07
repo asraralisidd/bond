@@ -185,3 +185,21 @@ export interface ReadyView {
     } | null;
   };
 }
+
+export interface EventFeedItem {
+  id: string;
+  type: string;
+  agentId: string | null;
+  bondId: string | null;
+  txId: string | null;
+  actor: string;
+  policyVersion: string | null;
+  requestId: string | null;
+  createdAt: string;
+  payload: unknown;
+}
+
+export interface EventFeedPage {
+  events: EventFeedItem[];
+  nextCursor: string | null;
+}

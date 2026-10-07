@@ -126,6 +126,7 @@ describe("BondAgentClient surface", () => {
         "getAgent",
         "getFlag",
         "lastRequestId",
+        "listEvents",
         "listFlags",
         "setToken",
         "verifyAgent",
@@ -151,8 +152,9 @@ describe("BondAgentClient surface", () => {
     await agent.getAgent("a-1");
     await agent.listFlags("a-1");
     await agent.getFlag("f-1");
+    await agent.listEvents({ limit: 10 });
     await agent.verifyAgent("a-1");
-    expect(seen).toHaveLength(4);
+    expect(seen).toHaveLength(5);
     for (const entry of seen) {
       const headers = entry.init.headers as Record<string, string>;
       expect(headers.Authorization).toBe("Bearer cred_test.secret");

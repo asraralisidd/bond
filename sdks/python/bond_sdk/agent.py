@@ -53,6 +53,17 @@ class BondAgentClient:
         """Fetch one owned risk flag (requires risk:read)."""
         return self._client.get_flag(flag_id)
 
+    def list_events(
+        self,
+        limit: int | None = None,
+        cursor: str | None = None,
+        event_type: str | None = None,
+    ) -> Any:
+        """Poll own event feed (requires risk:read)."""
+        return self._client.list_events(
+            limit=limit, cursor=cursor, event_type=event_type
+        )
+
     def get_agent(self, agent_id: str) -> Any:
         """Fetch own agent record (requires agent:read)."""
         return self._client.get_agent(agent_id)
