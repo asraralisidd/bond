@@ -94,6 +94,7 @@ def test_agent_client_exposes_only_four_capabilities():
         "analyze_activity",
         "list_flags",
         "get_flag",
+        "list_events",
         "get_agent",
         "verify_agent",
         "set_token",

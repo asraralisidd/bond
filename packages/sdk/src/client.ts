@@ -19,6 +19,7 @@ import type {
   BondView,
   EligibilityProofView,
   EligibilityStatusView,
+  EventFeedPage,
   HealthView,
   PublicAgentVerification,
   PublicEligibilityView,
@@ -408,6 +409,27 @@ export class BondClient {
 
   getFlag(id: string): Promise<RiskFlagView> {
     return this.get<RiskFlagView>(`/api/v1/risk/flags/${id}`);
+  }
+
+  listEvents(input?: {
+    limit?: number;
+    cursor?: string;
+    type?: string;
+  }): Promise<EventFeedPage> {
+    const params = new URLSearchParams();
+    if (input?.limit !== undefined) {
+      params.set("limit", String(input.limit));
+    }
+    if (input?.cursor !== undefined) {
+      params.set("cursor", input.cursor);
+    }
+    if (input?.type !== undefined) {
+      params.set("type", input.type);
+    }
+    const query = params.toString();
+    return this.get<EventFeedPage>(
+      `/api/v1/events${query.length > 0 ? `?${query}` : ""}`,
+    );
   }
 
   registerAttestor(input: {

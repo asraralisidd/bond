@@ -110,10 +110,7 @@ export function globalRateLimit(deps?: RateLimitMiddlewareDeps) {
 }
 
 export function rateLimitFor(
-  policyName: Exclude<
-    PolicyName,
-    "auth" | "public" | "publicEligibility" | "read"
-  >,
+  policyName: Exclude<PolicyName, "auth" | "public" | "publicEligibility">,
   keyFn?: (req: Request) => string | null,
   deps?: RateLimitMiddlewareDeps,
 ) {
