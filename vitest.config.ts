@@ -19,6 +19,9 @@ export default defineConfig({
       "@bond/midnight-adapter": fileURLToPath(
         new URL("./packages/midnight-adapter/src/index.ts", import.meta.url),
       ),
+      "@bond/sdk": fileURLToPath(
+        new URL("./packages/sdk/src/index.ts", import.meta.url),
+      ),
     },
   },
   test: {
