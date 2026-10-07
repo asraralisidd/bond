@@ -12,6 +12,7 @@
 import { DomainError, isIsoTimestamp } from "@bond/shared-types";
 import type { AgentId } from "@bond/shared-types";
 import { parseAgentId } from "@bond/shared-types";
+import { resolveBehavioralThresholds } from "./behavioral.js";
 
 export type ActivityType =
   | "tool-call"
@@ -42,6 +43,38 @@ export interface PolicyContext {
   readonly denylistedActions?: readonly string[];
   readonly spendLimitMinorUnits?: string;
   readonly exfilThresholdBytes?: number;
+  readonly behavioralThresholds?: BehavioralThresholdsInput;
+}
+
+/**
+ * Optional behavioral thresholds (Phase 20). All fields optional with
+ * safe defaults applied at normalization; all values are explicit,
+ * validated integers — no environment reads, no hidden configuration.
+ * They travel with the analyzed activity so results are reproducible.
+ */
+export interface BehavioralThresholdsInput {
+  /** Burst/velocity window in hours. Integer 1–168. Default 1. */
+  readonly windowHours?: number;
+  /** Analyses within the window that trigger `activity-burst`. 2–1000. Default 10. */
+  readonly burstCount?: number;
+  /** Spend-velocity allowance as a multiple of spendLimit. 2–100. Default 3. */
+  readonly velocityMultiple?: number;
+  /** Trailing baseline for `novel-tool`, in days. 1–30. Default 7. */
+  readonly baselineDays?: number;
+  /** Same-category findings (incl. current) triggering `repeat-violation`. 2–20. Default 3. */
+  readonly repeatCount?: number;
+  /** Repeat-violation window in hours. 1–168. Default 24. */
+  readonly repeatWindowHours?: number;
+}
+
+/** Fully resolved behavioral thresholds (defaults applied, validated). */
+export interface ResolvedBehavioralThresholds {
+  readonly windowHours: number;
+  readonly burstCount: number;
+  readonly velocityMultiple: number;
+  readonly baselineDays: number;
+  readonly repeatCount: number;
+  readonly repeatWindowHours: number;
 }
 
 export interface RawActivityInput {
@@ -88,6 +121,8 @@ export interface NormalizedPolicyContext {
   readonly denylistedActions: readonly string[] | null;
   readonly spendLimitMinorUnits: string | null;
   readonly exfilThresholdBytes: number | null;
+  /** Always resolved (defaults applied, ranges validated). */
+  readonly behavioralThresholds: ResolvedBehavioralThresholds;
 }
 
 const MAX_TEXT_SNIPPET = 500;
@@ -215,6 +250,9 @@ export function normalizeActivity(raw: RawActivityInput): NormalizedActivity {
         (policy as PolicyContext).spendLimitMinorUnits ?? null,
       exfilThresholdBytes:
         (policy as PolicyContext).exfilThresholdBytes ?? null,
+      behavioralThresholds: resolveBehavioralThresholds(
+        (policy as PolicyContext).behavioralThresholds,
+      ),
     },
   };
 }

@@ -103,6 +103,36 @@ describe("security boundary (architectural)", () => {
     }
   });
 
+  it("behavioral module has no I/O, clock, or enforcement surface", () => {
+    const behavioral = engineSources().find((s) => s.file === "behavioral.ts");
+    expect(behavioral).toBeTruthy();
+    const content = behavioral?.content ?? "";
+    for (const token of [
+      "pg",
+      "process.env",
+      "Date.now",
+      "Math.random",
+      "randomUUID",
+      "fetch",
+      "http",
+      "attestor",
+      "Attestation",
+      "SlashEvent",
+      "wallet",
+      "Wallet",
+      "midnight",
+      "signTransaction",
+      "submitTransaction",
+      "critical",
+      "Critical",
+    ]) {
+      expect(
+        content.includes(token),
+        `behavioral.ts must not reference ${token}`,
+      ).toBe(false);
+    }
+  });
+
   it("never retains input secrets in any output", () => {
     const result = analyzeActivity({
       activityId: "act-secrets",

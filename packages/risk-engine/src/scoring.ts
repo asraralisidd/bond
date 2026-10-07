@@ -14,7 +14,7 @@
  */
 import type { RiskSeverity } from "@bond/shared-types";
 import type { RuleFinding } from "./rules.js";
-import { SCORING_MODEL_VERSION } from "./versions.js";
+import { SCORING_MODEL_VERSION, SCORING_V2 } from "./versions.js";
 
 export const SEVERITY_POINTS: Readonly<Record<RiskSeverity, number>> = {
   low: 10,
@@ -48,7 +48,11 @@ export interface RiskScore {
   /** Integer 0–100 (converted to 0–1 at the RiskFlag boundary). */
   readonly confidence: number;
   readonly factors: readonly ScoreFactor[];
-  readonly scoringVersion: typeof SCORING_MODEL_VERSION;
+  /**
+   * Scoring tag. Widened to string in Phase 20 so v2 scores fit the
+   * same shape; v1 path still stamps exactly `scoring-v1`.
+   */
+  readonly scoringVersion: string;
 }
 
 const BREADTH_POINTS = 5;
@@ -101,5 +105,69 @@ export function scoreFindings(
     confidence: maxConfidence,
     factors,
     scoringVersion: SCORING_MODEL_VERSION,
+  };
+}
+
+/**
+ * Behavioral breadth cap: extra breadth from behavioral findings is
+ * capped so statistics cannot inflate a score without bound.
+ */
+const BEHAVIORAL_BREADTH_POINTS = 2;
+const BEHAVIORAL_BREADTH_CAP = 8;
+
+/**
+ * Phase 20 scoring-v2. Does NOT alter `scoreFindings`: v1-only
+ * analyses keep byte-identical scores. When behavioral findings
+ * exist, the total preserves the v1 score as the floor, takes the
+ * stronger of the v1 and behavioral sub-scores, and adds small
+ * capped breadth for multiple behavioral signals:
+ *
+ *   total = min(100, max(v1, behavioral) + min(8, 2 × (n − 1)))
+ *
+ * Behavioral severities never exceed high (enforced by the
+ * detectors), so v2 can never manufacture a CRITICAL on its own;
+ * a v1 CRITICAL passes through unchanged.
+ */
+export function scoreWithBehavioral(
+  v1: RiskScore | null,
+  behavioral: readonly RuleFinding[],
+): RiskScore | null {
+  if (behavioral.length === 0) {
+    return v1;
+  }
+  const sub = scoreFindings(behavioral);
+  const behavioralBase = sub === null ? 0 : sub.score;
+  const v1Score = v1 === null ? 0 : v1.score;
+  const breadth = Math.min(
+    BEHAVIORAL_BREADTH_CAP,
+    BEHAVIORAL_BREADTH_POINTS * (behavioral.length - 1),
+  );
+  const total = Math.min(100, Math.max(v1Score, behavioralBase) + breadth);
+  const delta = Math.max(0, total - v1Score);
+  const v1Factors = v1 === null ? [] : v1.factors;
+  const behavioralFactors: ScoreFactor[] = (sub?.factors ?? []).map(
+    (factor, index) => ({
+      ...factor,
+      // The behavioral addition lands on the first behavioral
+      // factor; the rest are informational (contribution 0).
+      contribution: index === 0 ? delta : 0,
+    }),
+  );
+  let severity: RiskSeverity = v1 === null ? "low" : v1.severity;
+  let confidence = v1 === null ? 0 : v1.confidence;
+  for (const item of behavioral) {
+    if (SEVERITY_RANK[item.severity] > SEVERITY_RANK[severity]) {
+      severity = item.severity;
+    }
+    if (item.confidence > confidence) {
+      confidence = item.confidence;
+    }
+  }
+  return {
+    score: total,
+    severity,
+    confidence,
+    factors: [...v1Factors, ...behavioralFactors],
+    scoringVersion: SCORING_V2,
   };
 }

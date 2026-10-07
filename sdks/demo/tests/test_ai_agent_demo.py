@@ -169,6 +169,16 @@ def risky_config():
     )
 
 
+def behavioral_config():
+    return AIDemoConfig(
+        api_url="http://localhost:4000",
+        dev_auth_token="SECRET-TOKEN-XYZ",
+        external_key="ai-demo-operator",
+        mode="scripted",
+        scenario="behavioral",
+    )
+
+
 def test_scripted_provider_deterministic():
     benign = ScriptedModelProvider("benign")
     first = benign.generate("p", {})
@@ -412,3 +422,99 @@ def test_main_failure_paths_nonzero(capsys, monkeypatch):
     captured = capsys.readouterr()
     assert "demo failed:" in captured.err
     assert "bad" not in captured.err
+
+
+def test_behavioral_flow_reports_rule_ids_and_versions():
+    class BehavioralAgentClient(StubClient):
+        def analyze_activity(self, agent_id, activity):
+            self.calls.append(("analyze_activity", activity["actionType"]))
+            n = sum(1 for c in self.calls if c[0] == "analyze_activity")
+            factors = []
+            if n >= 11:
+                factors.append(
+                    {
+                        "ruleId": "activity-burst",
+                        "severity": "medium",
+                        "category": "anomalous-behavior",
+                    }
+                )
+            if n >= 14:
+                factors.append(
+                    {
+                        "ruleId": "spend-velocity",
+                        "severity": "medium",
+                        "category": "overspend",
+                    }
+                )
+            if n == 16:
+                factors.append(
+                    {
+                        "ruleId": "novel-tool",
+                        "severity": "low",
+                        "category": "capability-mismatch",
+                    }
+                )
+            if n >= 18:
+                factors.append(
+                    {
+                        "ruleId": "repeat-violation",
+                        "severity": "high",
+                        "category": "policy-violation",
+                    }
+                )
+            return {
+                "analysisId": f"an-b-{n}",
+                "score": {"score": 30, "factors": factors},
+                "flagIds": [],
+            }
+
+        def list_flags(self, agent_id):
+            self.calls.append("list_flags")
+            return [
+                {
+                    "riskFlagId": "rf-01234567-activity-burst",
+                    "severity": "medium",
+                    "category": "anomalous-behavior",
+                    "modelVersion": (
+                        "bond-risk-engine/engine-v1 "
+                        "ruleset/ruleset-v2 scoring/scoring-v2"
+                    ),
+                }
+            ]
+
+    client = StubClient()
+    agent_stub = BehavioralAgentClient()
+    out = io.StringIO()
+    summary = AIAgent(
+        behavioral_config(),
+        client,
+        ScriptedModelProvider("behavioral"),
+        agent_client_factory=lambda base_url, token: agent_stub,
+        grant_client_factory=lambda base_url, token: StubClient(),
+    ).run(out=out)
+    assert summary["behavioralSteps"] == 19
+    for rule_id in (
+        "activity-burst",
+        "spend-velocity",
+        "novel-tool",
+        "repeat-violation",
+    ):
+        assert rule_id in summary["behavioralRuleIds"], rule_id
+    assert summary["behavioralModelVersions"] == [
+        "bond-risk-engine/engine-v1 ruleset/ruleset-v2 scoring/scoring-v2"
+    ]
+    assert summary["credentialRevoked"] is True
+    assert (
+        sum(1 for c in agent_stub.calls if c[0] == "analyze_activity") == 19
+    )
+    text = out.getvalue()
+    for rule_id in (
+        "activity-burst",
+        "spend-velocity",
+        "novel-tool",
+        "repeat-violation",
+    ):
+        assert rule_id in text, rule_id
+    assert "ruleset-v2" in text
+    assert "grant-secret-xyz" not in text
+    assert "agent-secret-xyz" not in text
