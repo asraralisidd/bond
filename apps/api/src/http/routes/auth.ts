@@ -31,7 +31,7 @@ authRouter.post(
         throw new ApiError("INVALID_IDENTIFIER", "externalKey required");
       }
       const session = await issueDevSession(body.externalKey);
-      res.status(201).json(session);
+      res.status(201).json({ data: session });
     } catch (error) {
       next(error);
     }
@@ -80,7 +80,7 @@ authRouter.post(
         challengeId: body.challengeId,
         signature: body.signature,
       });
-      res.status(201).json(session);
+      res.status(201).json({ data: session });
     } catch (error) {
       next(error);
     }

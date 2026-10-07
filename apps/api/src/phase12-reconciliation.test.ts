@@ -28,7 +28,7 @@ async function sessionFor(
     .post("/api/v1/auth/session")
     .send({ devKey: DEV_KEY, externalKey });
   expect(sess.status).toBe(201);
-  return sess.body.token as string;
+  return sess.body.data.token as string;
 }
 
 async function registerAgent(

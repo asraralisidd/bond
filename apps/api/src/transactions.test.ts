@@ -13,7 +13,7 @@ async function setup() {
   const sess = await request(app)
     .post("/api/v1/auth/session")
     .send({ devKey: DEV_KEY, externalKey: "dave" });
-  return { app, token: sess.body.token as string };
+  return { app, token: sess.body.data.token as string };
 }
 
 beforeAll(async () => {

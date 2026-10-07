@@ -144,9 +144,9 @@ describe("wallet challenge verification", () => {
         },
       });
     expect(res.status).toBe(201);
-    expect(res.body.operatorId).toBe(`op_w_${vk.toLowerCase()}`);
+    expect(res.body.data.operatorId).toBe(`op_w_${vk.toLowerCase()}`);
     // The session works for owner-scoped routes.
-    const agentId = await registerAgent(app, res.body.token as string);
+    const agentId = await registerAgent(app, res.body.data.token as string);
     expect(agentId).toBeTruthy();
   });
 
@@ -296,7 +296,7 @@ describe("wallet-attended submission lifecycle", () => {
         },
       });
     expect(res.status).toBe(201);
-    return res.body.token as string;
+    return res.body.data.token as string;
   }
 
   it("records operator-attended submission without claiming confirmation", async () => {
@@ -377,7 +377,7 @@ describe("wallet authorization boundary", () => {
           },
         });
       expect(res.status).toBe(201);
-      return res.body.token as string;
+      return res.body.data.token as string;
     }
     const alice = await walletSession();
     const bob = await walletSession();

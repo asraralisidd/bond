@@ -23,7 +23,7 @@ describe("reconciliation", () => {
     const sess = await request(app)
       .post("/api/v1/auth/session")
       .send({ devKey: DEV_KEY, externalKey: "ivan" });
-    const token = sess.body.token as string;
+    const token = sess.body.data.token as string;
     const agent = await request(app)
       .post("/api/v1/agents")
       .set("Authorization", `Bearer ${token}`)

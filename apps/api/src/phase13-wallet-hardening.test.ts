@@ -57,8 +57,8 @@ async function walletSession(
     });
   expect(res.status).toBe(201);
   return {
-    token: res.body.token as string,
-    operatorId: res.body.operatorId as string,
+    token: res.body.data.token as string,
+    operatorId: res.body.data.operatorId as string,
     vk,
   };
 }
@@ -69,7 +69,7 @@ async function devSession(app: App, externalKey: string): Promise<string> {
     .post("/api/v1/auth/session")
     .send({ devKey: DEV_KEY, externalKey });
   expect(sess.status).toBe(201);
-  return sess.body.token as string;
+  return sess.body.data.token as string;
 }
 
 async function registerAgent(

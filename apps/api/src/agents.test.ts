@@ -11,7 +11,7 @@ async function authedAgent(app: ReturnType<typeof createApp>) {
     .post("/api/v1/auth/session")
     .send({ devKey: DEV_KEY, externalKey: "alice" });
   expect(sess.status).toBe(201);
-  return sess.body.token as string;
+  return sess.body.data.token as string;
 }
 
 beforeAll(async () => {
@@ -85,7 +85,7 @@ describe("agents API", () => {
       .send({ devKey: DEV_KEY, externalKey: "bob" });
     const cross = await request(app)
       .get(`/api/v1/agents/${first.body.data.agentId}`)
-      .set("Authorization", `Bearer ${bob.body.token}`);
+      .set("Authorization", `Bearer ${bob.body.data.token}`);
     expect(cross.status).toBe(403);
     expect(cross.body.code).toBe("FORBIDDEN");
   });

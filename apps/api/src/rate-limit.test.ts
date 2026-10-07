@@ -95,7 +95,7 @@ describe("C. identity isolation", () => {
         .send({ devKey: "test-dev-key", externalKey: "bob-rl" });
       const first = await request(app)
         .post("/api/v1/agents")
-        .set("Authorization", `Bearer ${alice.body.token}`)
+        .set("Authorization", `Bearer ${alice.body.data.token}`)
         .send({
           platform: "p",
           agentType: "custom",
@@ -105,7 +105,7 @@ describe("C. identity isolation", () => {
       expect(first.status).toBe(201);
       const secondDenied = await request(app)
         .post("/api/v1/agents")
-        .set("Authorization", `Bearer ${alice.body.token}`)
+        .set("Authorization", `Bearer ${alice.body.data.token}`)
         .send({
           platform: "p",
           agentType: "custom",
@@ -116,7 +116,7 @@ describe("C. identity isolation", () => {
       // Bob has his own budget.
       const bobOk = await request(app)
         .post("/api/v1/agents")
-        .set("Authorization", `Bearer ${bob.body.token}`)
+        .set("Authorization", `Bearer ${bob.body.data.token}`)
         .send({
           platform: "p",
           agentType: "custom",
@@ -209,7 +209,7 @@ describe("F. mutations and expensive operations", () => {
       const sess = await request(app)
         .post("/api/v1/auth/session")
         .send({ devKey: "test-dev-key", externalKey: "op-exp" });
-      const token = sess.body.token as string;
+      const token = sess.body.data.token as string;
       const agent = await request(app)
         .post("/api/v1/agents")
         .set("Authorization", `Bearer ${token}`)
