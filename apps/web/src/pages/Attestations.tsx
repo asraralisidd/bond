@@ -51,7 +51,7 @@ export function AttestationsPage() {
   }
 
   return (
-    <>
+    <div className="page-enter">
       <PageHeader
         title="Attestations"
         intro="Independent quorum decisions over risk findings. A decision — never a raw flag — is what enforcement can consume."
@@ -143,6 +143,6 @@ export function AttestationsPage() {
           enforcement — and only through an explicit, tracked transaction.
         </p>
       </div>
-    </>
+    </div>
   );
 }

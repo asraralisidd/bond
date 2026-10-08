@@ -237,7 +237,7 @@ export function DashboardPage() {
               sub={worst ? `top severity ${worst}` : "no open findings"}
             />
             <MetricCard
-              label="Attestations"
+              label="Attested findings"
               value={loadingExtra ? "…" : attestations}
               icon={<VectorAttestor size={16} />}
               tone="neutral"
@@ -283,6 +283,13 @@ export function DashboardPage() {
                   level={worst ? worst.toUpperCase() : "NOMINAL"}
                 />
               )}
+              <p
+                className="muted"
+                style={{ fontSize: "0.8rem", marginTop: "0.4rem" }}
+              >
+                Band indicator from the worst open severity — not a measured
+                score. Per-analysis scores live under Risk Intelligence.
+              </p>
             </TechnicalCard>
           </div>
           <div className="card mt">

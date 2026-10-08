@@ -72,7 +72,7 @@ export function AttestationDetailPage({
   }
 
   return (
-    <>
+    <div className="page-enter">
       <PageHeader
         title="Attestation"
         intro="Quorum state, verdicts, expiry, and the enforcement path."
@@ -293,6 +293,6 @@ export function AttestationDetailPage({
           );
         }}
       </DataState>
-    </>
+    </div>
   );
 }

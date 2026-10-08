@@ -510,7 +510,12 @@ export function AttestationQuorum({
         <circle cx="60" cy="60" r="16" className="quorum-source" />
         {Array.from({ length: nodes }).map((_, i) => {
           const y = nodes === 1 ? 60 : 30 + (i * 60) / Math.max(1, nodes - 1);
-          const tone = i < confirms ? "good" : "bad";
+          const tone =
+            confirms + rejects === 0
+              ? "neutral"
+              : i < confirms
+                ? "good"
+                : "bad";
           return (
             <g key={i}>
               <line x1="60" y1="60" x2="160" y2={y} className="arch-link" />

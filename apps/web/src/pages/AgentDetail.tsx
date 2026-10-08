@@ -17,7 +17,6 @@ import {
   VectorAttestor,
   VectorBond,
   VectorRisk,
-  VectorShield,
 } from "../components/vectors.js";
 import { useToast } from "../app/toast.js";
 import { recents } from "../lib/recent.js";
@@ -297,15 +296,6 @@ export function AgentDetailPage({ agentId }: { agentId: string }) {
                 </TechnicalCard>
               </>
             ) : null}
-            <div className="card mt">
-              <h2>
-                <VectorShield size={15} /> Standing
-              </h2>
-              <p className="muted">
-                Verification verdict and lifecycle govern this agent&apos;s
-                standing — see Security above.
-              </p>
-            </div>
           </>
         )}
       </DataState>

@@ -1308,6 +1308,10 @@ body::before {
 .quorum-bad {
   stroke: var(--bond-bad);
 }
+.quorum-neutral {
+  stroke: var(--bond-text-faint);
+  stroke-dasharray: 3 2;
+}
 
 .quorum-decided {
   fill: var(--bond-good-wash);

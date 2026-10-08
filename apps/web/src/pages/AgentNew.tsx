@@ -60,7 +60,7 @@ export function AgentNewPage() {
   }
 
   return (
-    <>
+    <div className="page-enter">
       <PageHeader
         title="Register agent"
         intro="Binds an external agent to your operator identity. Duplicate (operator, platform, reference) triples are rejected."
@@ -127,6 +127,6 @@ export function AgentNewPage() {
           </button>
         </form>
       </div>
-    </>
+    </div>
   );
 }
