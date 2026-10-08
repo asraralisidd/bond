@@ -6,6 +6,7 @@
 import { api, useApi } from "../api/client.js";
 import { DataState } from "../components/DataState.js";
 import { PageHeader, StatusBadge } from "../components/chrome.js";
+import { PrincipleQuote } from "../components/vectors.js";
 import { TechnicalCard, VectorSlash } from "../components/vectors.js";
 
 interface SlashRow {
@@ -44,6 +45,11 @@ export function SecurityPage() {
       <PageHeader
         title="Slash Events"
         intro="Confirmed enforcement history. Every row below links to a confirmed slash record — nothing provisional is listed as enforcement."
+      />
+      <PrincipleQuote
+        quote="Separate detection from enforcement."
+        tone="neutral"
+        compact
       />
       <TechnicalCard
         title="Enforcement ledger"

@@ -5,6 +5,7 @@
  */
 import {
   ArchitectureDiagram,
+  PrincipleQuote,
   SecurityTimeline,
   TechnicalCard,
   VectorAttestor,
@@ -69,8 +70,18 @@ export function LandingPage() {
         </div>
       </section>
 
+      <PrincipleQuote
+        quote="Autonomy without accountability is a security gap."
+        supporting="BOND turns autonomous agent behavior into verifiable, enforceable security."
+        tone="accent"
+      />
+
       <h2 className="section-label">Protocol pipeline</h2>
       <ArchitectureDiagram />
+      <PrincipleQuote
+        quote="AI detects. Attestors verify. The protocol enforces."
+        tone="accent"
+      />
 
       <h2 className="section-label">Security layers</h2>
       <div className="layer-grid">

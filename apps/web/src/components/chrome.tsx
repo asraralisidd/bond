@@ -330,6 +330,9 @@ export function Layout({ children }: { children: ReactNode }) {
         </nav>
         <div className="sidebar-foot">
           <NetworkIndicator network={networkLabel} />
+          <p className="sidebar-tagline">
+            Building accountability into autonomous intelligence.
+          </p>
           {session.token ? (
             <button
               type="button"

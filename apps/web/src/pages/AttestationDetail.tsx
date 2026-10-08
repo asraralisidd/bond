@@ -7,7 +7,7 @@ import { api, ApiError, useApi } from "../api/client.js";
 import type { AttestationView } from "../api/types.js";
 import { DataState } from "../components/DataState.js";
 import { PageHeader, StatusBadge } from "../components/chrome.js";
-import { AttestationQuorum } from "../components/vectors.js";
+import { AttestationQuorum, PrincipleQuote } from "../components/vectors.js";
 import { useToast } from "../app/toast.js";
 import { remember } from "../lib/recent.js";
 
@@ -103,6 +103,11 @@ export function AttestationDetailPage({
             <>
               <div className="card">
                 <h2>Decision state</h2>
+                <PrincipleQuote
+                  quote="One detector should never be the final judge."
+                  tone="good"
+                  compact
+                />
                 <AttestationQuorum
                   confirms={confirms}
                   rejects={rejects}

@@ -7,7 +7,12 @@ import { api, ApiError, useApi } from "../api/client.js";
 import type { RiskFlagView } from "../api/types.js";
 import { DataState } from "../components/DataState.js";
 import { PageHeader, StatusBadge } from "../components/chrome.js";
-import { RiskGauge, TechnicalCard, VectorRisk } from "../components/vectors.js";
+import {
+  PrincipleQuote,
+  RiskGauge,
+  TechnicalCard,
+  VectorRisk,
+} from "../components/vectors.js";
 import { useToast } from "../app/toast.js";
 
 const ACTION_TYPES = [
@@ -86,6 +91,11 @@ export function RiskPage() {
       <PageHeader
         title="Risk Intelligence"
         intro="Deterministic, explainable findings. Every finding carries its rule, severity, confidence, and evidence references — never secret evidence."
+      />
+      <PrincipleQuote
+        quote="Detection is only the beginning."
+        tone="warn"
+        compact
       />
       <div className="grid grid-2">
         <div className="card">

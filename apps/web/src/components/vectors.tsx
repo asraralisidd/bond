@@ -572,6 +572,37 @@ export function ProtocolStatus({
   );
 }
 
+/* ---------- protocol principle quotes ---------- */
+
+export function PrincipleQuote({
+  quote,
+  supporting,
+  tone = "neutral",
+  compact = false,
+}: {
+  quote: string;
+  supporting?: string;
+  tone?: "neutral" | "accent" | "good" | "warn" | "bad" | "violet";
+  compact?: boolean;
+}) {
+  return (
+    <figure
+      className={`principle principle-${tone}${compact ? " principle-compact" : ""}`}
+    >
+      <span className="principle-glyph" aria-hidden="true">
+        <VectorShield size={compact ? 16 : 20} />
+      </span>
+      <div className="principle-body">
+        <p className="principle-label">Bond principle</p>
+        <blockquote className="principle-quote">{quote}</blockquote>
+        {supporting ? (
+          <p className="principle-supporting">{supporting}</p>
+        ) : null}
+      </div>
+    </figure>
+  );
+}
+
 /* ---------- network indicator ---------- */
 
 export function NetworkIndicator({ network }: { network: string | null }) {
