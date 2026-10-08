@@ -17,6 +17,11 @@ const ADMIN_URL =
   process.env.TEST_ADMIN_DATABASE_URL ??
   `postgresql://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/bond_dev`;
 
+/** Admin connection string honoring the same CI overrides (for tests). */
+export function testAdminUrl(): string {
+  return ADMIN_URL;
+}
+
 export function testDatabaseUrl(name = "shared"): string {
   return (
     process.env.TEST_DATABASE_URL ??

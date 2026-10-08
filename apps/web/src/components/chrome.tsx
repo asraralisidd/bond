@@ -6,6 +6,20 @@ import type { ReactNode } from "react";
 import { api } from "../api/client.js";
 import { useRoute } from "../app/router.js";
 import { useSession } from "../app/session.js";
+import {
+  NetworkIndicator,
+  VectorActivity,
+  VectorAgent,
+  VectorAttestor,
+  VectorBond,
+  VectorGrid,
+  VectorRisk,
+  VectorShield,
+  VectorSlash,
+  VectorTransaction,
+  VectorVerification,
+  VectorWallet,
+} from "./vectors.js";
 
 export function Badge({
   tone = "neutral",
@@ -173,15 +187,62 @@ const NAV: {
   section: string | null;
   to: string;
   label: string;
-  icon: string;
+  icon: ReactNode;
 }[] = [
-  { section: null, to: "#/dashboard", label: "Dashboard", icon: "◈" },
-  { section: "Agents", to: "#/agents", label: "My Agents", icon: "⬡" },
-  { section: null, to: "#/bonds", label: "Bonds", icon: "⬣" },
-  { section: null, to: "#/risk", label: "Risk Intelligence", icon: "◉" },
-  { section: null, to: "#/attestations", label: "Attestations", icon: "⬔" },
-  { section: null, to: "#/security", label: "Security", icon: "⬒" },
-  { section: "Public", to: "#/verify", label: "Verify Agent", icon: "✓" },
+  {
+    section: "Overview",
+    to: "#/dashboard",
+    label: "Dashboard",
+    icon: <VectorGrid size={17} />,
+  },
+  {
+    section: "Agents",
+    to: "#/agents",
+    label: "My Agents",
+    icon: <VectorAgent size={17} />,
+  },
+  {
+    section: null,
+    to: "#/agents/new",
+    label: "Register Agent",
+    icon: <VectorActivity size={17} />,
+  },
+  {
+    section: "Collateral",
+    to: "#/bonds",
+    label: "Bond Status",
+    icon: <VectorBond size={17} />,
+  },
+  {
+    section: "Security",
+    to: "#/risk",
+    label: "Risk Intelligence",
+    icon: <VectorRisk size={17} />,
+  },
+  {
+    section: null,
+    to: "#/attestations",
+    label: "Attestations",
+    icon: <VectorAttestor size={17} />,
+  },
+  {
+    section: null,
+    to: "#/security",
+    label: "Slash Events",
+    icon: <VectorSlash size={17} />,
+  },
+  {
+    section: "Verification",
+    to: "#/verify",
+    label: "Verify Agent",
+    icon: <VectorVerification size={17} />,
+  },
+  {
+    section: "System",
+    to: "#/transactions",
+    label: "Transactions",
+    icon: <VectorTransaction size={17} />,
+  },
 ];
 
 function isActive(routeRaw: string, to: string): boolean {
@@ -240,7 +301,7 @@ export function Layout({ children }: { children: ReactNode }) {
       <aside className={`sidebar${open ? " open" : ""}`} aria-label="Primary">
         <div className="brand">
           <div className="brand-mark" aria-hidden="true">
-            B
+            <VectorShield size={20} />
           </div>
           <div>
             <div className="brand-name">BOND</div>
@@ -268,29 +329,29 @@ export function Layout({ children }: { children: ReactNode }) {
           ))}
         </nav>
         <div className="sidebar-foot">
-          <span
-            className="net-pill"
-            title={
-              networkLabel && networkLabel !== "SIMULATED"
-                ? "Midnight network configured (connection unverified until exercised)"
-                : "Simulated execution — not a production network"
-            }
-          >
-            <span aria-hidden="true">●</span> {networkLabel ?? "SIMULATED"}
-          </span>
+          <NetworkIndicator network={networkLabel} />
           {session.token ? (
             <button
               type="button"
               className="btn btn-ghost btn-sm"
               onClick={session.signOut}
             >
-              Sign out
+              <VectorWallet size={14} /> Sign out
             </button>
           ) : (
             <a className="btn btn-ghost btn-sm" href="#/login">
               Sign in
             </a>
           )}
+          {session.walletVerifyingKey ? (
+            <span
+              className="mono"
+              style={{ fontSize: "0.7rem", color: "var(--bond-text-faint)" }}
+            >
+              wallet:{session.walletVerifyingKey.slice(0, 8)}…
+              {session.walletNetwork ? ` @ ${session.walletNetwork}` : ""}
+            </span>
+          ) : null}
         </div>
       </aside>
       <div className="main">

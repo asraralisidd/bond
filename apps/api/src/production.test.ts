@@ -245,11 +245,10 @@ describe("/health vs /ready", () => {
 
   it("reports not-ready when schema is missing and never claims REAL", async () => {
     const { checkReadiness } = await import("./http/routes/system.js");
+    const { testAdminUrl } = await import("./test-helpers.js");
     const { Pool } = await import("pg");
     const admin = new Pool({
-      connectionString:
-        process.env.TEST_ADMIN_DATABASE_URL ??
-        "postgresql://bond:bond@localhost:5544/bond_dev",
+      connectionString: testAdminUrl(),
     });
     try {
       await admin.query("DROP DATABASE IF EXISTS bond_test_noschema");
@@ -258,7 +257,7 @@ describe("/health vs /ready", () => {
       await admin.end();
     }
     const result = await checkReadiness(
-      "postgresql://bond:bond@localhost:5544/bond_test_noschema",
+      testAdminUrl().replace(/\/bond_dev$/, "/bond_test_noschema"),
       "simulated",
     );
     expect(result.ready).toBe(false);

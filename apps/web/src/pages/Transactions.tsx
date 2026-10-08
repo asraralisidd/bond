@@ -83,7 +83,7 @@ export function TransactionsPage({ initialId }: { initialId?: string }) {
   }
 
   return (
-    <>
+    <div className="page-enter">
       <PageHeader
         title="Transactions"
         intro="Explicit lifecycle tracking. Submission and confirmation are separate, visible steps — a submitted transaction is never shown as confirmed."
@@ -175,6 +175,6 @@ export function TransactionsPage({ initialId }: { initialId?: string }) {
           </DataState>
         </div>
       ) : null}
-    </>
+    </div>
   );
 }

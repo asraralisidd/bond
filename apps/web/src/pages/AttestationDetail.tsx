@@ -7,6 +7,7 @@ import { api, ApiError, useApi } from "../api/client.js";
 import type { AttestationView } from "../api/types.js";
 import { DataState } from "../components/DataState.js";
 import { PageHeader, StatusBadge } from "../components/chrome.js";
+import { AttestationQuorum } from "../components/vectors.js";
 import { useToast } from "../app/toast.js";
 import { remember } from "../lib/recent.js";
 
@@ -102,7 +103,13 @@ export function AttestationDetailPage({
             <>
               <div className="card">
                 <h2>Decision state</h2>
-                <dl className="kv">
+                <AttestationQuorum
+                  confirms={confirms}
+                  rejects={rejects}
+                  threshold={a.threshold}
+                  decided={a.decision !== null && a.decision !== undefined}
+                />
+                <dl className="kv mt">
                   <dt>Attestation</dt>
                   <dd className="mono">{a.attestationId}</dd>
                   <dt>Status</dt>

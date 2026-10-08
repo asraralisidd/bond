@@ -14,6 +14,7 @@ import { BondsPage } from "./pages/Bonds.js";
 import { RiskPage } from "./pages/Risk.js";
 import { AttestationsPage } from "./pages/Attestations.js";
 import { AttestationDetailPage } from "./pages/AttestationDetail.js";
+import { LandingPage } from "./pages/Landing.js";
 import { SecurityPage } from "./pages/Security.js";
 import { VerifyPage } from "./pages/Verify.js";
 import { TransactionsPage } from "./pages/Transactions.js";
@@ -27,6 +28,18 @@ function Guarded({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function DashboardOrLanding() {
+  const session = useSession();
+  if (!session.token) {
+    return <LandingPage />;
+  }
+  return (
+    <Guarded>
+      <DashboardPage />
+    </Guarded>
+  );
+}
+
 function Routes() {
   const route = useRoute();
   const [name, ...rest] = route.segments;
@@ -36,6 +49,9 @@ function Routes() {
   }
   if (name === "verify") {
     return <VerifyPage />;
+  }
+  if (name === "dashboard" && rest.length === 0) {
+    return <DashboardOrLanding />;
   }
   if (name === "agents" && rest.length === 0) {
     return (

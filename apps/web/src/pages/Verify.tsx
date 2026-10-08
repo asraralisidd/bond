@@ -10,6 +10,7 @@ import type {
 } from "../api/types.js";
 import { PageHeader, StatusBadge } from "../components/chrome.js";
 import { LifecycleStepper } from "../components/lifecycle.js";
+import { TechnicalCard, VectorShield } from "../components/vectors.js";
 
 export function VerifyPage() {
   const [agentId, setAgentId] = useState("");
@@ -43,11 +44,29 @@ export function VerifyPage() {
   }
 
   return (
-    <>
-      <PageHeader
-        title="Verify agent"
-        intro="Public record check. No sign-in required, and no private data is ever exposed here — amounts, witnesses, and evidence stay hidden."
-      />
+    <div className="page-enter" style={{ maxWidth: "720px", margin: "0 auto" }}>
+      <div style={{ textAlign: "center", marginBottom: "1.4rem" }}>
+        <span
+          style={{
+            display: "inline-grid",
+            placeItems: "center",
+            width: "76px",
+            height: "76px",
+            borderRadius: "20px",
+            border: "1px solid var(--bond-border)",
+            background:
+              "linear-gradient(180deg, var(--bond-panel-2), var(--bond-panel))",
+            color: "var(--bond-accent)",
+          }}
+          aria-hidden="true"
+        >
+          <VectorShield size={40} />
+        </span>
+        <PageHeader
+          title="Verify agent"
+          intro="Public record check. No sign-in required, and no private data is ever exposed here — amounts, witnesses, and evidence stay hidden."
+        />
+      </div>
       <div className="card">
         <form className="form" onSubmit={onSubmit}>
           <div className="field">
@@ -168,6 +187,31 @@ export function VerifyPage() {
           ) : null}
         </div>
       ) : null}
-    </>
+      {result ? (
+        <TechnicalCard
+          title={
+            result.verification.result === "trusted"
+              ? "VERIFIED"
+              : result.verification.result === "caution"
+                ? "REVIEW ADVISED"
+                : "NOT VERIFIED"
+          }
+          icon={<VectorShield size={18} />}
+          tone={
+            result.verification.result === "trusted"
+              ? "good"
+              : result.verification.result === "caution"
+                ? "warn"
+                : "bad"
+          }
+        >
+          <p>
+            Verdict <StatusBadge status={result.verification.result} /> ·
+            eligible {eligibility ? (eligibility.eligible ? "yes" : "no") : "—"}{" "}
+            · {result.verification.registrationStatus}
+          </p>
+        </TechnicalCard>
+      ) : null}
+    </div>
   );
 }

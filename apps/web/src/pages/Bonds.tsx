@@ -11,6 +11,25 @@ import { TxBadge } from "../components/lifecycle.js";
 import { useToast } from "../app/toast.js";
 import { recents, remember } from "../lib/recent.js";
 
+/** Privacy-oriented bond state: what the protocol discloses. */
+function privacyState(status: string): string {
+  if (status === "WITHDRAWN") {
+    return "RELEASED";
+  }
+  if (status === "WITHDRAWABLE") {
+    return "VERIFIED";
+  }
+  if (
+    status === "ACTIVE" ||
+    status === "LOCKED" ||
+    status === "PARTIALLY_SLASHED" ||
+    status === "FULLY_SLASHED"
+  ) {
+    return "LOCKED";
+  }
+  return "PRIVATE";
+}
+
 function BondCard({
   bond,
   onChanged,
@@ -76,6 +95,10 @@ function BondCard({
         <dt>Status</dt>
         <dd>
           <StatusBadge status={bond.status} />
+        </dd>
+        <dt>Disclosure</dt>
+        <dd>
+          <StatusBadge status={privacyState(bond.status)} />
         </dd>
         <dt>Agent</dt>
         <dd className="mono">{bond.agentId.slice(0, 8)}…</dd>

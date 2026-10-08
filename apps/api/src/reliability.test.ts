@@ -180,9 +180,8 @@ describe("D. concurrent state transitions", () => {
 
 describe("E. migration locking", () => {
   it("concurrent migration runners apply each migration once", async () => {
-    const adminUrl =
-      process.env.TEST_ADMIN_DATABASE_URL ??
-      "postgresql://bond:bond@localhost:5544/bond_dev";
+    const { testAdminUrl } = await import("./test-helpers.js");
+    const adminUrl = testAdminUrl();
     const dbName = "bond_test_migrace";
     const admin = new Pool({ connectionString: adminUrl });
     try {

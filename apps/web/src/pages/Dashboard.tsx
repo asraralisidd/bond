@@ -1,5 +1,5 @@
 /**
- * Dashboard: portfolio overview from real endpoints only.
+ * Dashboard: security command center from real endpoints only.
  * Per-agent fan-out (flags, verification) is acceptable at demo scale
  * and is never cached as truth — statuses re-resolve on reload.
  */
@@ -13,18 +13,40 @@ import {
   StatusBadge,
 } from "../components/chrome.js";
 import { LifecycleStepper } from "../components/lifecycle.js";
+import {
+  MetricCard,
+  ProtocolStatus,
+  RiskGauge,
+  TechnicalCard,
+  VectorAgent,
+  VectorAttestor,
+  VectorBond,
+  VectorReputation,
+  VectorRisk,
+  VectorShield,
+  VectorSlash,
+} from "../components/vectors.js";
 
 interface AgentRow {
   status: string;
   agentId: string;
 }
 
+const SEVERITY_ORDER = ["critical", "high", "medium", "low"];
+
 export function DashboardPage() {
   const agents = useApi(() => api.listAgents(100), []);
+  const ready = useApi(() => api.ready(), []);
   const [flagged, setFlagged] = useState<
     { agentId: string; open: number; severity: string | null }[]
   >([]);
   const [slashes, setSlashes] = useState(0);
+  const [attestations, setAttestations] = useState(0);
+  const [reputation, setReputation] = useState<{
+    good: number;
+    probation: number;
+    poor: number;
+  } | null>(null);
   const [loadingExtra, setLoadingExtra] = useState(false);
   const [extraError, setExtraError] = useState<string | null>(null);
 
@@ -52,14 +74,15 @@ export function DashboardPage() {
                 .map((f) => f.severity)
                 .sort(
                   (x, y) =>
-                    ["critical", "high", "medium", "low"].indexOf(x) -
-                    ["critical", "high", "medium", "low"].indexOf(y),
+                    SEVERITY_ORDER.indexOf(x) - SEVERITY_ORDER.indexOf(y),
                 )[0] ?? null;
             return {
               agentId: a.agentId,
               open: open.length,
               severity: top,
               slashes: verification?.slashHistory.length ?? 0,
+              standing: verification?.reputation?.standing ?? null,
+              attested: flags.filter((f) => f.status === "attested").length,
             };
           }),
         );
@@ -72,6 +95,18 @@ export function DashboardPage() {
             })),
           );
           setSlashes(perAgent.reduce((n, p) => n + p.slashes, 0));
+          setAttestations(perAgent.reduce((n, p) => n + p.attested, 0));
+          const rep = { good: 0, probation: 0, poor: 0 };
+          for (const p of perAgent) {
+            if (p.standing === "good") {
+              rep.good += 1;
+            } else if (p.standing === "probation") {
+              rep.probation += 1;
+            } else if (p.standing === "poor") {
+              rep.poor += 1;
+            }
+          }
+          setReputation(rep);
           setLoadingExtra(false);
         }
       } catch (err) {
@@ -93,7 +128,7 @@ export function DashboardPage() {
   if (agents.loading) {
     return (
       <>
-        <PageHeader title="Dashboard" intro="Protocol posture at a glance." />
+        <PageHeader title="Dashboard" intro="Security command center." />
         <LoadingState label="Loading dashboard" />
       </>
     );
@@ -101,7 +136,7 @@ export function DashboardPage() {
   if (agents.error) {
     return (
       <>
-        <PageHeader title="Dashboard" intro="Protocol posture at a glance." />
+        <PageHeader title="Dashboard" intro="Security command center." />
         <ErrorState
           message={friendlyMessage(agents.error)}
           requestId={agents.error.requestId}
@@ -117,61 +152,138 @@ export function DashboardPage() {
   }
   const openFlags = flagged.reduce((n, f) => n + f.open, 0);
   const atRisk = flagged.filter((f) => f.open > 0);
+  const worst: string | null =
+    atRisk
+      .map((f) => f.severity)
+      .filter((s): s is string => s !== null)
+      .sort(
+        (x, y) => SEVERITY_ORDER.indexOf(x) - SEVERITY_ORDER.indexOf(y),
+      )[0] ?? null;
+  const checks = ready.data?.checks;
+  const midnightMode = checks?.midnight.mode ?? null;
 
   return (
-    <>
+    <div className="page-enter">
       <PageHeader
-        title="Dashboard"
+        title="BOND / Dashboard"
         intro="Live posture across your agents, bonds, findings, and enforcement — resolved from the API on every load."
       />
-      <div className="hero-strip">
-        <strong>Lifecycle:</strong> REGISTER → BOND → PROVE → OPERATE → ASSESS →
-        ATTEST → ENFORCE. Every stage below links to its source data — nothing
-        here is fabricated.
-      </div>
+      <ProtocolStatus
+        items={[
+          { label: "API", state: "OPERATIONAL", tone: "good" },
+          {
+            label: "DATABASE",
+            state: ready.data ? "OPERATIONAL" : "UNKNOWN",
+            tone: ready.data ? "good" : "neutral",
+          },
+          {
+            label: "WORKER",
+            state: ready.data ? "OPERATIONAL" : "UNKNOWN",
+            tone: ready.data ? "good" : "neutral",
+          },
+          {
+            label: "RISK",
+            state: worst ? worst.toUpperCase() : "NOMINAL",
+            tone: worst === "critical" ? "bad" : worst ? "warn" : "good",
+          },
+          {
+            label: "ATTESTOR",
+            state: attestations > 0 ? "ACTIVE" : "IDLE",
+            tone: "neutral",
+          },
+          {
+            label: "MIDNIGHT",
+            state: midnightMode ?? "SIMULATED",
+            tone: midnightMode === "REAL" ? "accent" : "warn",
+          },
+        ]}
+      />
       {rows.length === 0 ? (
-        <EmptyState
-          title="No agents yet"
-          body="Register your first agent to start the lifecycle. Each metric on this page is computed from real API responses."
-          action={
-            <a className="btn btn-primary" href="#/agents/new">
-              Register agent
-            </a>
-          }
-        />
+        <div className="mt">
+          <EmptyState
+            title="No agents yet"
+            body="Register your first agent to start the lifecycle. Each metric on this page is computed from real API responses."
+            action={
+              <a className="btn btn-primary" href="#/agents/new">
+                Register agent
+              </a>
+            }
+          />
+        </div>
       ) : (
         <>
-          <div className="grid grid-4">
-            <div className="card">
-              <div className="stat-value">{rows.length}</div>
-              <div className="stat-label">Registered agents</div>
-            </div>
-            <div className="card">
-              <div className="stat-value">
-                {(byStatus.get("ACTIVE") ?? 0) +
-                  (byStatus.get("ELIGIBLE") ?? 0)}
-              </div>
-              <div className="stat-label">Active / eligible</div>
-            </div>
-            <div className="card">
-              <div className="stat-value">{loadingExtra ? "…" : openFlags}</div>
-              <div className="stat-label">Open risk flags</div>
-            </div>
-            <div className="card">
-              <div className="stat-value">{loadingExtra ? "…" : slashes}</div>
-              <div className="stat-label">Slash events (confirmed)</div>
-            </div>
+          <div className="grid grid-4 mt">
+            <MetricCard
+              label="Registered agents"
+              value={rows.length}
+              icon={<VectorAgent size={16} />}
+              tone="accent"
+              sub={`${byStatus.get("ACTIVE") ?? 0} active / ${byStatus.get("ELIGIBLE") ?? 0} eligible`}
+            />
+            <MetricCard
+              label="Active bonds"
+              value={
+                (byStatus.get("ACTIVE") ?? 0) + (byStatus.get("BONDED") ?? 0)
+              }
+              icon={<VectorBond size={16} />}
+              tone="accent"
+              sub="collateral committed"
+            />
+            <MetricCard
+              label="Risk events"
+              value={loadingExtra ? "…" : openFlags}
+              icon={<VectorRisk size={16} />}
+              tone={openFlags > 0 ? "warn" : "good"}
+              sub={worst ? `top severity ${worst}` : "no open findings"}
+            />
+            <MetricCard
+              label="Attestations"
+              value={loadingExtra ? "…" : attestations}
+              icon={<VectorAttestor size={16} />}
+              tone="neutral"
+              sub={`${slashes} confirmed slash events`}
+            />
           </div>
-          <div className="card mt">
-            <h2>Agents by status</h2>
-            <div className="row">
-              {[...byStatus.entries()].map(([status, n]) => (
-                <span key={status} className="row" style={{ gap: "0.4rem" }}>
-                  <StatusBadge status={status} />
-                  <strong>{n}</strong>
-                </span>
-              ))}
-            </div>
+          <div className="grid grid-2 mt">
+            <TechnicalCard
+              title="Reputation"
+              icon={<VectorReputation size={18} />}
+              tone="violet"
+            >
+              {loadingExtra || !reputation ? (
+                <p>Resolving standings…</p>
+              ) : (
+                <div className="row">
+                  <StatusBadge status="good" /> {reputation.good}
+                  <StatusBadge status="probation" /> {reputation.probation}
+                  <StatusBadge status="poor" /> {reputation.poor}
+                </div>
+              )}
+            </TechnicalCard>
+            <TechnicalCard
+              title="Risk overview"
+              icon={<VectorShield size={18} />}
+              tone={worst === "critical" ? "bad" : worst ? "warn" : "good"}
+            >
+              {loadingExtra ? (
+                <p>Resolving findings…</p>
+              ) : (
+                <RiskGauge
+                  score={
+                    worst === "critical"
+                      ? 90
+                      : worst === "high"
+                        ? 65
+                        : worst === "medium"
+                          ? 45
+                          : worst === "low"
+                            ? 20
+                            : 0
+                  }
+                  level={worst ? worst.toUpperCase() : "NOMINAL"}
+                />
+              )}
+            </TechnicalCard>
           </div>
           <div className="card mt">
             <h2>Attention needed</h2>
@@ -180,7 +292,9 @@ export function DashboardPage() {
             ) : loadingExtra ? (
               <LoadingState label="Resolving flags" />
             ) : atRisk.length === 0 ? (
-              <p className="muted">No open flags. Nothing needs review.</p>
+              <p className="muted">
+                <VectorSlash size={14} /> No open flags. Nothing needs review.
+              </p>
             ) : (
               <div className="table-wrap">
                 <table className="data">
@@ -235,6 +349,6 @@ export function DashboardPage() {
           </div>
         </>
       )}
-    </>
+    </div>
   );
 }

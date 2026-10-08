@@ -7,6 +7,7 @@ import { api, ApiError, useApi } from "../api/client.js";
 import type { RiskFlagView } from "../api/types.js";
 import { DataState } from "../components/DataState.js";
 import { PageHeader, StatusBadge } from "../components/chrome.js";
+import { RiskGauge, TechnicalCard, VectorRisk } from "../components/vectors.js";
 import { useToast } from "../app/toast.js";
 
 const ACTION_TYPES = [
@@ -35,6 +36,8 @@ export function RiskPage() {
   const [limit, setLimit] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastScore, setLastScore] = useState<number | null>(null);
+  const [lastLevel, setLastLevel] = useState("NOMINAL");
 
   async function runAnalysis(e: React.FormEvent) {
     e.preventDefault();
@@ -62,6 +65,12 @@ export function RiskPage() {
           ? `${result.flagIds.length} finding(s) recorded`
           : "No findings — nothing to review",
       );
+      setLastScore(result.score?.score ?? null);
+      setLastLevel(
+        result.score?.severity
+          ? String(result.score.severity).toUpperCase()
+          : "NOMINAL",
+      );
       flags.reload();
     } catch (err) {
       const message =
@@ -73,34 +82,49 @@ export function RiskPage() {
   }
 
   return (
-    <>
+    <div className="page-enter">
       <PageHeader
         title="Risk Intelligence"
         intro="Deterministic, explainable findings. Every finding carries its rule, severity, confidence, and evidence references — never secret evidence."
       />
-      <div className="card">
-        <h2>Findings by agent</h2>
-        <form
-          className="form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setQueried(agentId.trim() || null);
-          }}
+      <div className="grid grid-2">
+        <div className="card">
+          <h2>Findings by agent</h2>
+          <form
+            className="form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              setQueried(agentId.trim() || null);
+            }}
+          >
+            <div className="field">
+              <label htmlFor="risk-agent">Agent ID</label>
+              <input
+                id="risk-agent"
+                className="mono"
+                value={agentId}
+                onChange={(e) => setAgentId(e.target.value)}
+                placeholder="agent uuid"
+              />
+            </div>
+            <button type="submit" className="btn">
+              Load findings
+            </button>
+          </form>
+        </div>
+        <TechnicalCard
+          title="Latest score"
+          icon={<VectorRisk size={18} />}
+          tone="warn"
         >
-          <div className="field">
-            <label htmlFor="risk-agent">Agent ID</label>
-            <input
-              id="risk-agent"
-              className="mono"
-              value={agentId}
-              onChange={(e) => setAgentId(e.target.value)}
-              placeholder="agent uuid"
-            />
-          </div>
-          <button type="submit" className="btn">
-            Load findings
-          </button>
-        </form>
+          <RiskGauge score={lastScore} level={lastLevel} />
+          <p
+            className="muted"
+            style={{ fontSize: "0.8rem", marginTop: "0.4rem" }}
+          >
+            Score from the most recent analysis run on this page.
+          </p>
+        </TechnicalCard>
       </div>
       {queried ? (
         <div className="card mt">
@@ -227,6 +251,39 @@ export function RiskPage() {
           )}
         </DataState>
       </div>
-    </>
+      {queried &&
+      !flags.loading &&
+      !flags.error &&
+      (flags.data ?? []).length > 0 ? (
+        <TechnicalCard
+          title="Security event timeline"
+          icon={<VectorRisk size={18} />}
+          tone="neutral"
+        >
+          <ol className="event-timeline">
+            {(flags.data ?? []).map((f) => (
+              <li
+                key={f.riskFlagId}
+                className={`event-item event-item-${
+                  f.severity === "critical"
+                    ? "bad"
+                    : f.severity === "high"
+                      ? "bad"
+                      : f.severity === "medium"
+                        ? "warn"
+                        : f.severity === "low"
+                          ? "info"
+                          : "warn"
+                }`}
+              >
+                <span className="mono">{f.riskFlagId.slice(0, 8)}…</span>{" "}
+                {f.category} · <StatusBadge status={f.severity} /> ·{" "}
+                <StatusBadge status={f.status} />
+              </li>
+            ))}
+          </ol>
+        </TechnicalCard>
+      ) : null}
+    </div>
   );
 }
