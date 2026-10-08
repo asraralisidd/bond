@@ -15,6 +15,7 @@ import {
 import { LifecycleStepper } from "../components/lifecycle.js";
 import {
   MetricCard,
+  PrincipleQuote,
   ProtocolStatus,
   RiskGauge,
   TechnicalCard,
@@ -244,6 +245,11 @@ export function DashboardPage() {
               sub={`${slashes} confirmed slash events`}
             />
           </div>
+          <PrincipleQuote
+            quote="AI detects. Attestors verify. The protocol enforces."
+            tone="neutral"
+            compact
+          />
           <div className="grid grid-2 mt">
             <TechnicalCard
               title="Reputation"

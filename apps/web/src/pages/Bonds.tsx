@@ -7,6 +7,7 @@ import { useState } from "react";
 import { api, ApiError } from "../api/client.js";
 import type { BondView } from "../api/types.js";
 import { PageHeader, StatusBadge } from "../components/chrome.js";
+import { PrincipleQuote } from "../components/vectors.js";
 import { TxBadge } from "../components/lifecycle.js";
 import { useToast } from "../app/toast.js";
 import { recents, remember } from "../lib/recent.js";
@@ -202,6 +203,11 @@ export function BondsPage() {
       <PageHeader
         title="Bonds"
         intro="Collateral intents and lifecycle. Chain effects move through explicitly tracked SIMULATED transactions — never silently."
+      />
+      <PrincipleQuote
+        quote="Trust should come with accountability."
+        tone="accent"
+        compact
       />
       <div className="grid grid-2">
         <div className="card">

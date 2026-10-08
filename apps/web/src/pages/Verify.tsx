@@ -9,6 +9,7 @@ import type {
   PublicEligibilityView,
 } from "../api/types.js";
 import { PageHeader, StatusBadge } from "../components/chrome.js";
+import { PrincipleQuote } from "../components/vectors.js";
 import { LifecycleStepper } from "../components/lifecycle.js";
 import { TechnicalCard, VectorShield } from "../components/vectors.js";
 
@@ -65,6 +66,11 @@ export function VerifyPage() {
         <PageHeader
           title="Verify agent"
           intro="Public record check. No sign-in required, and no private data is ever exposed here — amounts, witnesses, and evidence stay hidden."
+        />
+        <PrincipleQuote
+          quote="Verification without unnecessary disclosure."
+          tone="good"
+          compact
         />
       </div>
       <div className="card">
